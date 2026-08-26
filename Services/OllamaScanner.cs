@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using OllamaModelExplorer.Models;
 
@@ -80,8 +81,6 @@ public sealed class OllamaScanner
     {
         try
         {
-            // verbose=true keeps the call compatible with current Ollama API versions
-            // and requests the full model-information response.
             using var content = JsonContent.Create(new { model = model.DisplayName, verbose = true });
             using var response = await _http.PostAsync("api/show", content, cancellationToken);
             if (!response.IsSuccessStatusCode) return;
@@ -127,7 +126,6 @@ public sealed class OllamaScanner
 
     private static string InferParameterSize(string raw)
     {
-        // Fallback only. Prefer Ollama's details.parameter_size whenever available.
         var matches = Regex.Matches(raw, @"(?:^|[-_:])(?<n>\d+(?:\.\d+)?)(?<u>[bBmM])(?:$|[-_])");
         if (matches.Count == 0) return "";
         var m = matches[^1];
@@ -161,6 +159,7 @@ public sealed class OllamaScanner
         public string? Model { get; set; }
         public long Size { get; set; }
         public string? Digest { get; set; }
+        [JsonPropertyName("modified_at")]
         public string? ModifiedAt { get; set; }
         public TagDetails? Details { get; set; }
     }
@@ -168,12 +167,15 @@ public sealed class OllamaScanner
     {
         public string? Format { get; set; }
         public string? Family { get; set; }
+        [JsonPropertyName("parameter_size")]
         public string? ParameterSize { get; set; }
+        [JsonPropertyName("quantization_level")]
         public string? QuantizationLevel { get; set; }
     }
     private sealed class ShowResponse
     {
         public ShowDetails? Details { get; set; }
+        [JsonPropertyName("model_info")]
         public Dictionary<string, JsonElement>? ModelInfo { get; set; }
         public List<string>? Capabilities { get; set; }
     }
@@ -181,7 +183,9 @@ public sealed class OllamaScanner
     {
         public string? Format { get; set; }
         public string? Family { get; set; }
+        [JsonPropertyName("parameter_size")]
         public string? ParameterSize { get; set; }
+        [JsonPropertyName("quantization_level")]
         public string? QuantizationLevel { get; set; }
     }
 }
