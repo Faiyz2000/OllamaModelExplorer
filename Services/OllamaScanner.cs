@@ -70,10 +70,10 @@ public sealed class OllamaScanner
             ManifestPath = $"ollama-api://{publisher}/{name}:{tag}",
             Digest = item.Digest ?? "",
             Installed = true,
-            ParameterSize = First(item.Details?.ParameterSize, InferParameterSize(raw)),
-            Family = item.Details?.Family ?? "",
-            Quantization = item.Details?.QuantizationLevel ?? "",
-            Format = item.Details?.Format ?? ""
+            ParameterSize = CleanMetadata(item.Details?.ParameterSize),
+            Family = CleanMetadata(item.Details?.Family),
+            Quantization = CleanMetadata(item.Details?.QuantizationLevel),
+            Format = CleanMetadata(item.Details?.Format)
         };
     }
 
@@ -81,34 +81,41 @@ public sealed class OllamaScanner
     {
         try
         {
+            // Use the exact Ollama model identity, including publisher/tag.
             using var content = JsonContent.Create(new { model = model.DisplayName, verbose = true });
             using var response = await _http.PostAsync("api/show", content, cancellationToken);
             if (!response.IsSuccessStatusCode) return;
 
-            var show = await response.Content.ReadFromJsonAsync<ShowResponse>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, cancellationToken);
-            if (show is null) return;
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var root = document.RootElement;
 
-            model.Capabilities = show.Capabilities is null ? "" : string.Join("|", show.Capabilities);
-            if (show.Details is not null)
-            {
-                model.ParameterSize = First(model.ParameterSize, show.Details.ParameterSize);
-                model.Family = First(model.Family, show.Details.Family);
-                model.Quantization = First(model.Quantization, show.Details.QuantizationLevel);
-                model.Format = First(model.Format, show.Details.Format);
-            }
+            var details = GetObject(root, "details");
+            var modelInfo = GetObject(root, "model_info");
 
-            if (show.ModelInfo is not null)
+            model.ParameterSize = FirstReal(
+                model.ParameterSize,
+                GetString(details, "parameter_size"),
+                GetString(details, "parameterSize"),
+                FindParameterSize(modelInfo),
+                InferParameterSize(model.DisplayName));
+
+            model.Quantization = FirstReal(
+                model.Quantization,
+                GetString(details, "quantization_level"),
+                GetString(details, "quantizationLevel"),
+                FindQuantization(modelInfo));
+
+            model.Family = FirstReal(model.Family, GetString(details, "family"));
+            model.Format = FirstReal(model.Format, GetString(details, "format"));
+
+            var context = FindNumericOrString(modelInfo, "context_length");
+            if (!string.IsNullOrWhiteSpace(context)) model.Context = context;
+
+            if (root.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Array)
             {
-                foreach (var p in show.ModelInfo)
-                {
-                    if (p.Key.EndsWith(".context_length", StringComparison.OrdinalIgnoreCase))
-                        model.Context = Convert.ToString(p.Value, System.Globalization.CultureInfo.InvariantCulture) ?? "";
-                    if (string.IsNullOrWhiteSpace(model.ParameterSize) && p.Key.Contains("parameter", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var candidate = Convert.ToString(p.Value, System.Globalization.CultureInfo.InvariantCulture);
-                        model.ParameterSize = First(model.ParameterSize, candidate);
-                    }
-                }
+                model.Capabilities = string.Join("|", caps.EnumerateArray()
+                    .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.ToString())
+                    .Where(x => !string.IsNullOrWhiteSpace(x)));
             }
 
             model.OllamaUrl = model.Publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
@@ -122,7 +129,107 @@ public sealed class OllamaScanner
         }
     }
 
-    private static string First(string? current, string? replacement) => !string.IsNullOrWhiteSpace(current) ? current : replacement ?? "";
+    private static JsonElement GetObject(JsonElement root, string name)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return default;
+        foreach (var p in root.EnumerateObject())
+            if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.Object)
+                return p.Value;
+        return default;
+    }
+
+    private static string? GetString(JsonElement obj, string name)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return null;
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (!p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            return p.Value.ValueKind switch
+            {
+                JsonValueKind.String => p.Value.GetString(),
+                JsonValueKind.Number => p.Value.ToString(),
+                _ => null
+            };
+        }
+        return null;
+    }
+
+    private static string? FindNumericOrString(JsonElement obj, string suffix)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return null;
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (!p.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (p.Value.ValueKind == JsonValueKind.Number || p.Value.ValueKind == JsonValueKind.String)
+                return p.Value.ToString();
+        }
+        return null;
+    }
+
+    private static string FindParameterSize(JsonElement obj)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return "";
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (!p.Name.EndsWith("parameter_count", StringComparison.OrdinalIgnoreCase)) continue;
+            if (p.Value.ValueKind != JsonValueKind.Number && p.Value.ValueKind != JsonValueKind.String) continue;
+            if (double.TryParse(p.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var count))
+                return FormatParameterCount(count);
+        }
+        return "";
+    }
+
+    private static string FindQuantization(JsonElement obj)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return "";
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (!p.Name.EndsWith("file_type", StringComparison.OrdinalIgnoreCase)) continue;
+            if (p.Value.ValueKind == JsonValueKind.String)
+            {
+                var text = p.Value.GetString() ?? "";
+                if (text.Contains("Q", StringComparison.OrdinalIgnoreCase)) return text.ToUpperInvariant();
+            }
+            if (p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var code))
+                return MapGgmlFileType(code);
+        }
+        return "";
+    }
+
+    private static string MapGgmlFileType(int code) => code switch
+    {
+        0 => "F32", 1 => "F16", 2 => "Q4_0", 3 => "Q4_1",
+        6 => "Q5_0", 7 => "Q5_1", 8 => "Q8_0", 9 => "Q8_1",
+        10 => "Q2_K", 11 => "Q3_K_S", 12 => "Q3_K_M", 13 => "Q3_K_L",
+        14 => "Q4_K_S", 15 => "Q4_K_M", 16 => "Q5_K_S", 17 => "Q5_K_M",
+        18 => "Q6_K", 19 => "Q8_K", 20 => "IQ2_XXS", 21 => "IQ2_XS",
+        22 => "IQ3_XXS", 23 => "IQ1_S", 24 => "IQ4_NL", 25 => "IQ3_S",
+        26 => "IQ2_S", 27 => "IQ4_XS", 28 => "IQ1_M", 29 => "BF16",
+        _ => $"file_type:{code}"
+    };
+
+    private static string FormatParameterCount(double count)
+    {
+        if (count >= 1_000_000_000d) return (count / 1_000_000_000d).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "B";
+        if (count >= 1_000_000d) return (count / 1_000_000d).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "M";
+        if (count >= 1_000d) return (count / 1_000d).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "K";
+        return count.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string CleanMetadata(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var v = value.Trim();
+        return v.Equals("unknown", StringComparison.OrdinalIgnoreCase) || v.Equals("n/a", StringComparison.OrdinalIgnoreCase) ? "" : v;
+    }
+
+    private static string FirstReal(params string?[] values)
+    {
+        foreach (var value in values)
+            if (!string.IsNullOrWhiteSpace(value) && !value.Equals("unknown", StringComparison.OrdinalIgnoreCase) && !value.Equals("n/a", StringComparison.OrdinalIgnoreCase))
+                return value.Trim();
+        return "";
+    }
 
     private static string InferParameterSize(string raw)
     {
@@ -164,22 +271,6 @@ public sealed class OllamaScanner
         public TagDetails? Details { get; set; }
     }
     private sealed class TagDetails
-    {
-        public string? Format { get; set; }
-        public string? Family { get; set; }
-        [JsonPropertyName("parameter_size")]
-        public string? ParameterSize { get; set; }
-        [JsonPropertyName("quantization_level")]
-        public string? QuantizationLevel { get; set; }
-    }
-    private sealed class ShowResponse
-    {
-        public ShowDetails? Details { get; set; }
-        [JsonPropertyName("model_info")]
-        public Dictionary<string, JsonElement>? ModelInfo { get; set; }
-        public List<string>? Capabilities { get; set; }
-    }
-    private sealed class ShowDetails
     {
         public string? Format { get; set; }
         public string? Family { get; set; }
