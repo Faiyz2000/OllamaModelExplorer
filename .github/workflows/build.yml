@@ -1,0 +1,22 @@
+name: Build Ollama Model Explorer
+
+on:
+  push:
+    branches: [ main, fix/all-models-grid ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore OllamaModelExplorer.sln
+      - name: Build
+        run: dotnet build OllamaModelExplorer.sln --configuration Release --no-restore
