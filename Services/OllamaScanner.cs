@@ -28,9 +28,9 @@ public sealed class OllamaScanner
             throw new DirectoryNotFoundException(
                 "The selected folder does not appear to be an Ollama model root. Select the folder containing 'blobs' and 'manifests'.");
 
-        // /api/tags is the authoritative local inventory. Metadata enrichment must
-        // never be allowed to remove or hide an installed model.
-        progress?.Report("Reading the complete Ollama inventory...");
+        AppLogger.Info($"Starting local Ollama scan. Root: {ollamaRoot}");
+        progress?.Report("Reading Ollama installed models...");
+
         using var response = await _http.GetAsync(
             "api/tags", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -39,9 +39,13 @@ public sealed class OllamaScanner
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("models", out var modelsElement) ||
             modelsElement.ValueKind != JsonValueKind.Array)
+        {
+            AppLogger.Warning("Ollama /api/tags returned no models array.");
             return new List<ModelInfo>();
+        }
 
         var items = modelsElement.EnumerateArray().ToList();
+        AppLogger.Info($"Ollama /api/tags returned {items.Count} models.");
         progress?.Report($"Ollama reported {items.Count} installed models.");
 
         var results = new ModelInfo?[items.Count];
@@ -53,20 +57,17 @@ public sealed class OllamaScanner
             await gate.WaitAsync(cancellationToken);
             try
             {
-                // Creating the model from /api/tags must always succeed independently
-                // of /api/show. This is what guarantees that all installed models remain visible.
                 ModelInfo model;
                 try
                 {
                     model = CreateFromTags(item);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    AppLogger.Warning("Could not fully parse an /api/tags model; using minimal record. " + ex.Message);
                     model = CreateMinimalModel(item);
                 }
 
-                // /api/show is optional enrichment. It is deliberately isolated so a
-                // failed request, malformed response, or unsupported field cannot fail the scan.
                 await EnrichFromShowAsync(model, cancellationToken);
                 results[index] = model;
             }
@@ -74,9 +75,9 @@ public sealed class OllamaScanner
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                // As a final safety net, a model reported by /api/tags must still appear.
+                AppLogger.Error("Unexpected error while processing an Ollama model.", ex);
                 try { results[index] = CreateMinimalModel(item); }
                 catch { results[index] = null; }
             }
@@ -90,7 +91,7 @@ public sealed class OllamaScanner
 
         await Task.WhenAll(tasks);
 
-        return results
+        var final = results
             .Where(x => x is not null)
             .Select(x => x!)
             .GroupBy(x => $"{x.Publisher}/{x.Name}:{x.Tag}", StringComparer.OrdinalIgnoreCase)
@@ -98,6 +99,9 @@ public sealed class OllamaScanner
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Tag, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        AppLogger.Info($"Local Ollama scan completed. Models returned: {final.Count}.");
+        return final;
     }
 
     private static ModelInfo CreateFromTags(JsonElement item)
@@ -146,11 +150,13 @@ public sealed class OllamaScanner
 
     private async Task EnrichFromShowAsync(ModelInfo model, CancellationToken cancellationToken)
     {
+        var exactModel = model.Publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
+            ? $"{model.Name}:{model.Tag}"
+            : $"{model.Publisher}/{model.Name}:{model.Tag}";
+
         try
         {
-            var exactModel = model.Publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
-                ? $"{model.Name}:{model.Tag}"
-                : $"{model.Publisher}/{model.Name}:{model.Tag}";
+            AppLogger.Info($"Reading Ollama metadata: {exactModel}");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "api/show")
             {
@@ -162,40 +168,40 @@ public sealed class OllamaScanner
 
             using var response = await _http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
             if (!response.IsSuccessStatusCode)
+            {
+                AppLogger.Warning($"/api/show returned {(int)response.StatusCode} for {exactModel}.");
+                ApplyNameFallbacks(model, exactModel);
                 return;
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var details = GetObject(root, "details");
 
-            // Ollama normally exposes these values under details. Some versions/builds
-            // expose additional raw values under model_info, so search the complete response.
+            // The standard Ollama response places the two fields here.
             model.ParameterSize = FirstReal(
-                model.ParameterSize,
-                FindStringByKey(details, "parameter_size"),
+                GetString(details, "parameter_size"),
+                GetString(details, "parameterSize"),
                 FindStringByKey(root, "parameter_size"),
-                FormatParameterCount(FindNumberByKey(root, "parameter_count")),
-                FormatParameterCount(FindNumberByKey(root, "parameter.count")),
-                InferParameterSize(exactModel));
+                FormatParameterCount(FindNumberByKeyOrSuffix(root, "parameter_count")));
 
             model.Quantization = FirstReal(
-                model.Quantization,
-                FindStringByKey(details, "quantization_level"),
+                GetString(details, "quantization_level"),
+                GetString(details, "quantizationLevel"),
                 FindStringByKey(root, "quantization_level"),
-                MapFileTypeValue(FindValueByKey(root, "file_type")),
-                InferQuantization(exactModel));
+                MapFileTypeValue(FindValueByKeyOrSuffix(root, "file_type")));
 
-            model.Family = FirstReal(model.Family, FindStringByKey(details, "family"));
-            model.Format = FirstReal(model.Format, FindStringByKey(details, "format"));
+            model.Family = FirstReal(model.Family, GetString(details, "family"));
+            model.Format = FirstReal(model.Format, GetString(details, "format"));
 
             var context = FindNumberOrStringBySuffix(root, "context_length");
             if (!string.IsNullOrWhiteSpace(context))
                 model.Context = context;
 
-            if (root.TryGetProperty("capabilities", out var caps) &&
-                caps.ValueKind == JsonValueKind.Array)
+            if (root.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Array)
             {
                 model.Capabilities = string.Join(
                     "|",
@@ -208,17 +214,27 @@ public sealed class OllamaScanner
                 ? $"https://ollama.com/library/{model.Name}"
                 : $"https://ollama.com/{model.Publisher}/{model.Name}";
 
-            // Only mark metadata as updated when /api/show actually returned a valid response.
+            // Last-resort inference is only used when Ollama omitted the field.
+            ApplyNameFallbacks(model, exactModel);
+
             model.MetadataUpdatedUtc = DateTime.Now;
+            AppLogger.Info($"Metadata loaded: {exactModel} | Parameters={model.ParameterSize} | Quantization={model.Quantization}");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Metadata is optional. Never allow an /api/show failure to remove a local model.
+            AppLogger.Error($"Metadata request failed for {exactModel}.", ex);
+            ApplyNameFallbacks(model, exactModel);
         }
+    }
+
+    private static void ApplyNameFallbacks(ModelInfo model, string raw)
+    {
+        model.ParameterSize = FirstReal(model.ParameterSize, InferParameterSize(raw));
+        model.Quantization = FirstReal(model.Quantization, InferQuantization(raw));
     }
 
     private static JsonElement GetObject(JsonElement root, string name)
@@ -228,11 +244,9 @@ public sealed class OllamaScanner
 
         foreach (var p in root.EnumerateObject())
         {
-            if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
-                p.Value.ValueKind == JsonValueKind.Object)
+            if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.Object)
                 return p.Value;
         }
-
         return default;
     }
 
@@ -242,10 +256,8 @@ public sealed class OllamaScanner
             return null;
 
         foreach (var p in obj.EnumerateObject())
-        {
             if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 return Scalar(p.Value);
-        }
 
         return null;
     }
@@ -259,33 +271,31 @@ public sealed class OllamaScanner
         {
             if (!p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 continue;
-
             if (p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt64(out var n))
                 return n;
-
             if (long.TryParse(Scalar(p.Value), NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
                 return n;
         }
-
         return 0;
     }
 
     private static string? FindStringByKey(JsonElement root, string key)
     {
-        var value = FindValueByKey(root, key);
+        var value = FindValueByKeyOrSuffix(root, key);
         return value.ValueKind == JsonValueKind.Undefined ? null : Scalar(value);
     }
 
-    private static JsonElement FindValueByKey(JsonElement root, string key)
+    private static JsonElement FindValueByKeyOrSuffix(JsonElement root, string key)
     {
         if (root.ValueKind == JsonValueKind.Object)
         {
             foreach (var p in root.EnumerateObject())
             {
-                if (p.Name.Equals(key, StringComparison.OrdinalIgnoreCase))
+                if (p.Name.Equals(key, StringComparison.OrdinalIgnoreCase) ||
+                    p.Name.EndsWith("." + key, StringComparison.OrdinalIgnoreCase))
                     return p.Value;
 
-                var nested = FindValueByKey(p.Value, key);
+                var nested = FindValueByKeyOrSuffix(p.Value, key);
                 if (nested.ValueKind != JsonValueKind.Undefined)
                     return nested;
             }
@@ -294,25 +304,22 @@ public sealed class OllamaScanner
         {
             foreach (var item in root.EnumerateArray())
             {
-                var nested = FindValueByKey(item, key);
+                var nested = FindValueByKeyOrSuffix(item, key);
                 if (nested.ValueKind != JsonValueKind.Undefined)
                     return nested;
             }
         }
-
         return default;
     }
 
-    private static double? FindNumberByKey(JsonElement root, string key)
+    private static double? FindNumberByKeyOrSuffix(JsonElement root, string key)
     {
-        var value = FindValueByKey(root, key);
+        var value = FindValueByKeyOrSuffix(root, key);
         if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number))
             return number;
-
         if (value.ValueKind == JsonValueKind.String &&
             double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
             return number;
-
         return null;
     }
 
@@ -324,7 +331,6 @@ public sealed class OllamaScanner
             {
                 if (p.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                     return Scalar(p.Value);
-
                 var nested = FindNumberOrStringBySuffix(p.Value, suffix);
                 if (!string.IsNullOrWhiteSpace(nested))
                     return nested;
@@ -339,7 +345,6 @@ public sealed class OllamaScanner
                     return nested;
             }
         }
-
         return null;
     }
 
@@ -356,15 +361,13 @@ public sealed class OllamaScanner
     {
         if (value.ValueKind == JsonValueKind.Undefined)
             return "";
-
         if (value.ValueKind == JsonValueKind.String)
         {
             var text = value.GetString() ?? "";
-            return text.Contains('Q', StringComparison.OrdinalIgnoreCase)
+            return text.Contains('Q', StringComparison.OrdinalIgnoreCase) || text.StartsWith("IQ", StringComparison.OrdinalIgnoreCase)
                 ? text.ToUpperInvariant()
                 : "";
         }
-
         return value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var code)
             ? MapGgmlFileType(code)
             : "";
@@ -374,7 +377,7 @@ public sealed class OllamaScanner
     {
         var match = Regex.Match(
             raw,
-            @"(?<q>(?:Q(?:[0-8]|I[Q])[0-9A-Z_]*|IQ[0-9A-Z_]+))",
+            @"(?<q>IQ[0-9A-Z_]+|Q(?:[0-8]|I[Q])[0-9A-Z_]*)",
             RegexOptions.IgnoreCase);
         return match.Success ? match.Groups["q"].Value.ToUpperInvariant() : "";
     }
@@ -395,38 +398,27 @@ public sealed class OllamaScanner
     {
         if (!count.HasValue || count.Value <= 0)
             return "";
-
         var n = count.Value;
-        if (n >= 1_000_000_000d)
-            return (n / 1_000_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "B";
-        if (n >= 1_000_000d)
-            return (n / 1_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "M";
-        if (n >= 1_000d)
-            return (n / 1_000d).ToString("0.##", CultureInfo.InvariantCulture) + "K";
+        if (n >= 1_000_000_000d) return (n / 1_000_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "B";
+        if (n >= 1_000_000d) return (n / 1_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "M";
+        if (n >= 1_000d) return (n / 1_000d).ToString("0.##", CultureInfo.InvariantCulture) + "K";
         return n.ToString("0", CultureInfo.InvariantCulture);
     }
 
     private static string FirstReal(params string?[] values)
     {
         foreach (var value in values)
-        {
             if (!string.IsNullOrWhiteSpace(value) &&
                 !value.Equals("unknown", StringComparison.OrdinalIgnoreCase) &&
                 !value.Equals("n/a", StringComparison.OrdinalIgnoreCase))
                 return value.Trim();
-        }
-
         return "";
     }
 
     private static string InferParameterSize(string raw)
     {
-        var matches = Regex.Matches(
-            raw,
-            @"(?:^|[-_:])(?<n>\d+(?:\.\d+)?)(?<u>[bBmM])(?:$|[-_])");
-        if (matches.Count == 0)
-            return "";
-
+        var matches = Regex.Matches(raw, @"(?:^|[-_:])(?<n>\d+(?:\.\d+)?)(?<u>[bBmM])(?:$|[-_])");
+        if (matches.Count == 0) return "";
         var match = matches[^1];
         return match.Groups["n"].Value + match.Groups["u"].Value.ToUpperInvariant();
     }
@@ -439,27 +431,23 @@ public sealed class OllamaScanner
     private static (string Publisher, string Name, string Tag) ParseIdentity(string raw)
     {
         raw = raw.Trim();
-        if (string.IsNullOrWhiteSpace(raw))
-            return ("library", "unknown", "latest");
-
         var tag = "latest";
         var colon = raw.LastIndexOf(':');
         var slash = raw.LastIndexOf('/');
-        if (colon > slash && colon >= 0)
+        if (colon > slash)
         {
             tag = raw[(colon + 1)..];
             raw = raw[..colon];
         }
 
-        if (string.IsNullOrWhiteSpace(raw))
-            return ("library", "unknown", tag);
-
-        slash = raw.LastIndexOf('/');
-        if (slash < 0)
+        var firstSlash = raw.IndexOf('/');
+        if (firstSlash < 0)
             return ("library", raw, tag);
 
-        var publisher = raw[..slash];
-        var name = raw[(slash + 1)..];
-        return (string.IsNullOrWhiteSpace(publisher) ? "library" : publisher, name, tag);
+        var publisher = raw[..firstSlash];
+        var name = raw[(firstSlash + 1)..];
+        return (string.IsNullOrWhiteSpace(publisher) ? "library" : publisher,
+            string.IsNullOrWhiteSpace(name) ? raw : name,
+            string.IsNullOrWhiteSpace(tag) ? "latest" : tag);
     }
 }
