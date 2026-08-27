@@ -291,7 +291,7 @@ public sealed class MainForm : Form
         var available = RamEstimator.GetAvailableRamBytes();
         if (available <= 0) return;
         if (_grid.Rows.Count > 0)
-            _grid.InvalidateColumn(_grid.Columns["RAM to Run"]?.Index ?? -1);
+            _grid.Invalidate();
         UpdateSummary(_grid.Rows.Count);
     }
 
