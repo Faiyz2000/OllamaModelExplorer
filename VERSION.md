@@ -1,8 +1,16 @@
 # Ollama Model Explorer Version
 
-## Version 0.5.0
+## Version 0.5.1
 
 Date: 2026-08-27
+
+### Changes in 0.5.1
+
+- Fixed safe refresh/invalidation of the RAM column when available system memory changes.
+- RAM status is refreshed every 5 seconds without rebuilding the model grid or altering model records.
+- Preserved all 0.5.0 RAM estimation functionality.
+
+## Version 0.5.0
 
 ### Changes
 
@@ -29,6 +37,7 @@ The result should be treated as a planning indicator, not a guarantee of exact p
 - Existing model files are not deleted or modified.
 - No Internet connection is required for RAM estimation.
 
-### Pre-update snapshot
+### Pre-update snapshots
 
-A Git branch named `versions/v0.5.0-pre-ram-estimation` was created from `main` before the 0.5.0 changes. It is the rollback/snapshot copy for this version.
+- `versions/v0.5.0-pre-ram-estimation` — snapshot created before the 0.5.0 RAM feature.
+- `versions/v0.5.0-pre-ram-refresh-fix` — snapshot created before the 0.5.1 RAM refresh safety fix.
