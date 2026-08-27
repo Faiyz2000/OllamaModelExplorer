@@ -20,6 +20,7 @@ public sealed class MainForm : Form
     private readonly Label _summary = new();
     private readonly Button _scanButton = new();
     private readonly Button _selectFolderButton = new();
+    private readonly System.Windows.Forms.Timer _ramRefreshTimer = new() { Interval = 5000 };
     private string _ollamaRoot = "";
     private List<ModelInfo> _allModels = new();
     private int _sortColumn = 1;
@@ -35,6 +36,9 @@ public sealed class MainForm : Form
         AppLogger.Info("Application started.");
         BuildUi();
         LoadModels();
+        _ramRefreshTimer.Tick += (_, _) => RefreshRamDisplay();
+        _ramRefreshTimer.Start();
+        FormClosed += (_, _) => _ramRefreshTimer.Stop();
     }
 
     private void BuildUi()
@@ -141,6 +145,7 @@ public sealed class MainForm : Form
         AddColumn("Parameters", "ParameterSize", 110);
         AddColumn("Family", "Family", 120);
         AddColumn("Quantization", "Quantization", 120);
+        AddColumn("RAM to Run", "RamRequirement", 230);
         AddColumn("Categories", "CategoryText", 230);
         AddColumn("Modified", "ModifiedDisplay", 150);
         AddColumn("Metadata", "MetadataDisplay", 100);
@@ -270,7 +275,24 @@ public sealed class MainForm : Form
         SortRows(rows);
         ReNumber(rows);
         _grid.DataSource = new BindingList<ModelRow>(rows);
-        _summary.Text = $"{rows.Count} shown • {_allModels.Count(x => x.Installed)} installed • {FormatBytes(_allModels.Where(x => x.Installed).Sum(x => x.SizeBytes))} local storage • {_allModels.Count(x => x.MetadataUpdatedUtc.HasValue)} enriched";
+        UpdateSummary(rows.Count);
+    }
+
+    private void UpdateSummary(int shown)
+    {
+        var available = RamEstimator.GetAvailableRamBytes();
+        var availableText = available > 0 ? RamEstimator.FormatGiB(available) : "Unknown";
+        _summary.Text = $"{shown} shown • {_allModels.Count(x => x.Installed)} installed • {FormatBytes(_allModels.Where(x => x.Installed).Sum(x => x.SizeBytes))} local storage • {_allModels.Count(x => x.MetadataUpdatedUtc.HasValue)} enriched • {availableText} RAM available";
+    }
+
+    private void RefreshRamDisplay()
+    {
+        if (_grid.IsDisposed) return;
+        var available = RamEstimator.GetAvailableRamBytes();
+        if (available <= 0) return;
+        if (_grid.Rows.Count > 0)
+            _grid.InvalidateColumn(_grid.Columns["RAM to Run"]?.Index ?? -1);
+        UpdateSummary(_grid.Rows.Count);
     }
 
     private IEnumerable<ModelInfo> ApplySizeFilter(IEnumerable<ModelInfo> source) => _size.SelectedIndex switch
@@ -302,9 +324,10 @@ public sealed class MainForm : Form
             4 => (a, b) => CompareNatural(a.Model.ParameterSize, b.Model.ParameterSize),
             5 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Family, b.Model.Family),
             6 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Quantization, b.Model.Quantization),
-            7 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
-            8 => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
-            9 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MetadataUpdatedUtc?.ToString("O") ?? "", b.Model.MetadataUpdatedUtc?.ToString("O") ?? ""),
+            7 => (a, b) => RamEstimator.EstimateRequiredRamBytes(a.Model).CompareTo(RamEstimator.EstimateRequiredRamBytes(b.Model)),
+            8 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
+            9 => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
+            10 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MetadataUpdatedUtc?.ToString("O") ?? "", b.Model.MetadataUpdatedUtc?.ToString("O") ?? ""),
             _ => null
         };
         if (comparison == null) return;
@@ -336,8 +359,9 @@ public sealed class MainForm : Form
     private void ShowDetails(ModelInfo m)
     {
         AppLogger.Action($"Opened model details: {m.DisplayName}");
-        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nManifest: {m.ManifestPath}\r\nDigest: {m.Digest}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
-        using var f = new Form { Text = m.DisplayName, Width = 850, Height = 600, StartPosition = FormStartPosition.CenterParent };
+        var ram = RamEstimator.Assess(m);
+        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nEstimated RAM to run: {ram.Display}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nManifest: {m.ManifestPath}\r\nDigest: {m.Digest}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
+        using var f = new Form { Text = m.DisplayName, Width = 850, Height = 620, StartPosition = FormStartPosition.CenterParent };
         f.Controls.Add(new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Text = text, Font = new Font("Consolas", 10) });
         f.ShowDialog(this);
     }
@@ -352,7 +376,7 @@ public sealed class MainForm : Form
         var comparisonFields = new (string Name, Func<ModelInfo, string> GetValue)[]
         {
             ("Size", m => FormatBytes(m.SizeBytes)), ("Parameters", m => m.ParameterSize), ("Family", m => m.Family),
-            ("Quantization", m => m.Quantization), ("Context", m => m.Context), ("Categories", m => m.CategoryText),
+            ("Quantization", m => m.Quantization), ("Estimated RAM", m => RamEstimator.Assess(m).Display), ("Context", m => m.Context), ("Categories", m => m.CategoryText),
             ("Capabilities", m => m.Capabilities.Replace("|", ", "))
         };
         foreach (var pair in comparisonFields) lines.Add(pair.Name.PadRight(24) + string.Join(" | ", selected.Select(m => pair.GetValue(m))));
@@ -380,6 +404,7 @@ public sealed class MainForm : Form
         public string ParameterSize => string.IsNullOrWhiteSpace(Model.ParameterSize) ? "Unknown" : Model.ParameterSize;
         public string Family => Model.Family;
         public string Quantization => Model.Quantization;
+        public string RamRequirement => RamEstimator.Assess(Model).Display;
         public string CategoryText => Model.CategoryText;
         public string ModifiedDisplay => Model.ModifiedUtc.ToString("yyyy-MM-dd HH:mm");
         public string MetadataDisplay => Model.MetadataUpdatedUtc.HasValue ? "Enriched" : "Local";
