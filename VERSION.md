@@ -1,5 +1,27 @@
 # Ollama Model Explorer Version
 
+## Version 0.6.1
+
+Date: 2026-08-29
+
+### Changes in 0.6.1
+
+- Fixed the project-build failure caused by duplicate source/resource files being automatically included by the .NET SDK.
+- Changed the project to use an explicit compile list for the repository's intended `.cs` files.
+- This prevents stray copies, backup files, or duplicate `LogForm`/`AppLogger` source files in the project directory from creating C# ambiguity errors.
+- This also prevents duplicate WinForms resource generation such as `OllamaModelExplorer.UI.LogForm.resources` when unrelated duplicate source files are present locally.
+- Retained the existing Windows Forms application, SQLite support, model scanning, live Ollama inventory, metadata/quantization handling, RAM estimation, logging, online update controls, and other existing functionality.
+- Retained the Windows x64 self-contained/single-file publish settings in the project file.
+- Updated application version to 0.6.1.
+
+### Important build note
+
+The repository itself contains only the intended source files. The explicit compile list makes the build independent of extra `.cs` files that may be left in a downloaded/copy-pasted project directory. After updating, delete `bin` and `obj` once and perform a Restore/Rebuild before publishing.
+
+### Pre-update snapshot
+
+- `versions/v0.6.0-pre-build-fix` — branch snapshot created before the 0.6.1 build-fix update.
+
 ## Version 0.5.1
 
 Date: 2026-08-27
