@@ -1,17 +1,43 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.5.1</Version>
-    <AssemblyVersion>0.5.1.0</AssemblyVersion>
-    <FileVersion>0.5.1.0</FileVersion>
-    <InformationalVersion>0.5.1 - RAM estimation refresh fix</InformationalVersion>
+
+    <Version>0.6.1</Version>
+    <AssemblyVersion>0.6.1.0</AssemblyVersion>
+    <FileVersion>0.6.1.0</FileVersion>
+    <InformationalVersion>0.6.1 - Clean project compilation and duplicate-source protection</InformationalVersion>
+
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- Prevent stray/backup/copied .cs files from being automatically compiled. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Data\Database.cs" />
+    <Compile Include="Models\ManifestDocument.cs" />
+    <Compile Include="Models\ModelInfo.cs" />
+    <Compile Include="Services\AppLogger.cs" />
+    <Compile Include="Services\CategoryService.cs" />
+    <Compile Include="Services\OllamaOnlineCatalogService.cs" />
+    <Compile Include="Services\OllamaScanner.cs" />
+    <Compile Include="Services\RamEstimator.cs" />
+    <Compile Include="UI\LogForm.cs" />
+    <Compile Include="UI\MainForm.cs" />
+    <Compile Include="UI\MainFormOnline.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
+
 </Project>
