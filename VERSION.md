@@ -1,5 +1,25 @@
 # Ollama Model Explorer Version
 
+## Version 0.6.2
+
+Date: 2026-08-29
+
+### Changes in 0.6.2
+
+- Configured the Windows application executable to use `OllamaIcon.ico` through the project `ApplicationIcon` property.
+- Added the icon as project content so it is included by the project when the icon file is present beside the `.csproj` file.
+- Added `BUTTONS.md`, a detailed reference for every main button and filter/control, including Internet access behavior, local Ollama API behavior, database effects, and model-information refresh behavior.
+- Documented the distinction between local model scanning and online Ollama catalog enrichment.
+- Preserved all v0.6.1 functionality.
+
+### Important icon note
+
+The supplied `OllamaIcon.ico` is a binary file. The available repository file-writing interface can update UTF-8 source/documentation files but cannot directly upload binary files. Therefore the project is configured to use the filename `OllamaIcon.ico`; the supplied icon must be copied into the repository/project root beside `OllamaModelExplorer.csproj` before building/publishing. If the file is absent, the icon cannot be embedded into the executable.
+
+### Pre-update snapshot
+
+- `versions/v0.6.1-pre-icon-and-button-documentation` — repository snapshot created before the 0.6.2 update.
+
 ## Version 0.6.1
 
 Date: 2026-08-29
@@ -21,45 +41,3 @@ The repository itself contains only the intended source files. The explicit comp
 ### Pre-update snapshot
 
 - `versions/v0.6.0-pre-build-fix` — branch snapshot created before the 0.6.1 build-fix update.
-
-## Version 0.5.1
-
-Date: 2026-08-27
-
-### Changes in 0.5.1
-
-- Fixed safe refresh/invalidation of the RAM column when available system memory changes.
-- RAM status is refreshed every 5 seconds without rebuilding the model grid or altering model records.
-- Preserved all 0.5.0 RAM estimation functionality.
-
-## Version 0.5.0
-
-### Changes
-
-- Added a new **RAM to Run** column to the right of Quantization in the model grid.
-- The RAM estimate is calculated from each model's local stored size plus a conservative runtime overhead allowance of approximately 15% and a minimum 512 MiB.
-- The application reads the Windows **currently available physical RAM** using `GlobalMemoryStatusEx`; it does not assume that a fixed amount such as 8 GB is always available.
-- Each RAM cell reports an approximate requirement, current available RAM, and a simple `OK` / `NOT ENOUGH` assessment.
-- RAM availability is refreshed every 5 seconds while the application is running, so the assessment changes as available memory changes.
-- RAM information is also shown in the model details and model comparison views.
-- RAM estimation is local-only and does not send memory information or model information to the Internet.
-- Existing model discovery, Ollama metadata extraction, filters, comparison, logging, offline behavior, and other features are preserved.
-
-### RAM estimate methodology
-
-The estimate is intentionally approximate. On-disk model size is not identical to peak runtime memory because Ollama/model-runtime allocations, loader overhead, and context/KV-cache memory can add to the requirement. The application therefore uses:
-
-`Estimated RAM = model size + max(15% of model size, 512 MiB)`
-
-The result should be treated as a planning indicator, not a guarantee of exact peak memory usage.
-
-### Compatibility
-
-- Existing SQLite database is retained.
-- Existing model files are not deleted or modified.
-- No Internet connection is required for RAM estimation.
-
-### Pre-update snapshots
-
-- `versions/v0.5.0-pre-ram-estimation` — snapshot created before the 0.5.0 RAM feature.
-- `versions/v0.5.0-pre-ram-refresh-fix` — snapshot created before the 0.5.1 RAM refresh safety fix.
