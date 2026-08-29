@@ -7,10 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.6.1</Version>
-    <AssemblyVersion>0.6.1.0</AssemblyVersion>
-    <FileVersion>0.6.1.0</FileVersion>
-    <InformationalVersion>0.6.1 - Clean project compilation and duplicate-source protection</InformationalVersion>
+    <Version>0.6.2</Version>
+    <AssemblyVersion>0.6.2.0</AssemblyVersion>
+    <FileVersion>0.6.2.0</FileVersion>
+    <InformationalVersion>0.6.2 - Application icon and button documentation</InformationalVersion>
+
+    <!-- The supplied OllamaIcon.ico must be present beside this project file. -->
+    <ApplicationIcon>OllamaIcon.ico</ApplicationIcon>
 
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <SelfContained>true</SelfContained>
@@ -37,6 +40,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="OllamaIcon.ico" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
