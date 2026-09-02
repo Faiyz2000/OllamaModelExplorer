@@ -12,15 +12,12 @@
     <FileVersion>0.6.4.0</FileVersion>
     <InformationalVersion>0.6.4 - Model deletion with confirmation</InformationalVersion>
 
-    <!-- The supplied OllamaIcon.ico must be present beside this project file. -->
     <ApplicationIcon>OllamaIcon.ico</ApplicationIcon>
 
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-
-    <!-- Prevent stray/backup/copied .cs files from being automatically compiled. -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
@@ -34,6 +31,7 @@
     <Compile Include="Services\OllamaOnlineCatalogService.cs" />
     <Compile Include="Services\OllamaScanner.cs" />
     <Compile Include="Services\RamEstimator.cs" />
+    <Compile Include="Services\DeleteModelFeature.cs" />
     <Compile Include="UI\LogForm.cs" />
     <Compile Include="UI\MainForm.cs" />
     <Compile Include="UI\MainFormOnline.cs" />
