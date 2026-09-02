@@ -1,6 +1,6 @@
 # Ollama Model Explorer — Button and Control Reference
 
-Version 0.6.2
+Version 0.6.4
 
 This document describes what each button/control does, whether it accesses the Internet, and what model information it changes.
 
@@ -81,7 +81,29 @@ The `New on Ollama` filter can then be used to display records marked as new on 
 
 ---
 
-## 5. Compare Selected
+---
+
+## 6. Delete
+
+**Purpose:** Permanently remove the selected installed model from Ollama.
+
+**Selection requirement:** Exactly one installed model must be selected. The button remains disabled otherwise.
+
+**Confirmation:** A warning confirmation dialog is always shown before deletion. Selecting **Yes** continues; selecting **No** or closing the dialog cancels the operation and no model is deleted.
+
+**What happens:** The application sends the exact model name/tag to Ollama's local `http://localhost:11434/api/delete` endpoint. Ollama performs the actual removal of the model. The application does not manually delete blob or manifest files, which avoids corrupting Ollama's content-addressed storage.
+
+**After deletion:** A fresh local scan is performed so the grid is synchronized with Ollama immediately. The deleted model is therefore removed from the installed-model view.
+
+**Internet:** No. The operation communicates only with the local Ollama service at `http://localhost:11434`.
+
+**Database:** The database is refreshed through the normal local scan. The model is no longer marked as installed. Existing cached online/catalog information is not treated as the authority for the installed inventory.
+
+**Logging:** The action, cancellation, success, and failure are recorded in the application log.
+
+**Important:** Deletion is irreversible from the application's perspective. To use the model again, it must be downloaded/pulled into Ollama again.
+
+## 7. Compare Selected
 
 **Purpose:** Compare multiple selected model records side by side.
 
@@ -99,9 +121,7 @@ The `New on Ollama` filter can then be used to display records marked as new on 
 
 **Does it update models?** No. It is a viewing/analysis function.
 
----
-
-## 6. View Log
+## 8. View Log
 
 **Purpose:** Open the application's activity log viewer.
 
@@ -116,9 +136,7 @@ The log window provides:
 
 `Open in Notepad` launches Windows Notepad with the current log file. It does not send the log anywhere.
 
----
-
-## 7. Search box
+## 9. Search box
 
 **Purpose:** Filter the displayed model list.
 
@@ -128,9 +146,7 @@ It searches model/display name, publisher, and description.
 
 **Model data changed:** No. Search only changes which records are displayed.
 
----
-
-## 8. Category filter
+## 10. Category filter
 
 **Purpose:** Show models belonging to a selected category.
 
@@ -138,9 +154,7 @@ It searches model/display name, publisher, and description.
 
 **Model data changed:** No. This is a display filter.
 
----
-
-## 9. Size filter
+## 11. Size filter
 
 **Purpose:** Filter models by local stored size ranges.
 
@@ -148,9 +162,7 @@ It searches model/display name, publisher, and description.
 
 **Model data changed:** No.
 
----
-
-## 10. Installed filter
+## 12. Installed filter
 
 **Purpose:** Show only models currently marked as locally installed.
 
@@ -158,25 +170,19 @@ It searches model/display name, publisher, and description.
 
 The installed state originates from the local Ollama synchronization/scan.
 
----
-
-## 11. Enriched filter
+## 13. Enriched filter
 
 **Purpose:** Show models for which Ollama/public metadata enrichment has been recorded.
 
 **Internet:** No when merely filtering. The filter itself does not perform an online lookup.
 
----
-
-## 12. New on Ollama filter
+## 14. New on Ollama filter
 
 **Purpose:** Show models marked as new/available through the Ollama online catalog comparison.
 
 **Internet:** No when merely filtering. Use the online update/check functions to obtain current catalog information.
 
----
-
-## 13. DataGridView column headers
+## 15. DataGridView column headers
 
 Clicking a column header sorts the displayed rows by that column. Clicking the same header again reverses the sort direction.
 
@@ -184,9 +190,7 @@ Clicking a column header sorts the displayed rows by that column. Clicking the s
 
 Sorting does not modify model files or model records.
 
----
-
-## 14. Double-click a model
+## 16. Double-click a model
 
 **Purpose:** Open the detailed model information form for the selected model.
 
@@ -196,9 +200,7 @@ The detail view can contain information such as the model name, publisher, tag, 
 
 **Internet:** Opening the details window itself does not inherently require Internet access. It displays information already stored by the application. Online information is refreshed by the explicit online update operation rather than by simply opening a model.
 
----
-
-## 15. RAM to Run column
+## 17. RAM to Run column
 
 This is not the computer's currently available RAM.
 
@@ -213,8 +215,6 @@ It is a planning estimate, not an exact measurement of peak runtime consumption.
 **Internet:** No.
 
 **Physical PC RAM:** The application may display current available RAM separately for status/assessment, but that does not change the model's calculated requirement.
-
----
 
 ## Recommended workflow
 
@@ -251,4 +251,4 @@ The SQLite database is application-side storage for model records and enriched m
 
 The local Ollama API is the authoritative installed-model inventory, while scanning/synchronization refreshes the database records used to present the grid efficiently. Consequently, the database can contain historical/catalog records while the installed flag and current local inventory are synchronized from Ollama.
 
-Model files themselves remain under the Ollama storage directory and are not copied into SQLite.
+Model files themselves remain under the Ollama storage directory and are not manually modified by the scanner.

@@ -104,6 +104,40 @@ public sealed class OllamaScanner
         return final;
     }
 
+    public async Task DeleteModelAsync(ModelInfo model, CancellationToken cancellationToken = default)
+    {
+        if (model is null)
+            throw new ArgumentNullException(nameof(model));
+
+        var exactModel = model.Publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
+            ? $"{model.Name}:{model.Tag}"
+            : $"{model.Publisher}/{model.Name}:{model.Tag}";
+
+        AppLogger.Action($"Deleting Ollama model: {exactModel}");
+
+        using var request = new HttpRequestMessage(HttpMethod.Delete, "api/delete")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { model = exactModel }),
+                Encoding.UTF8,
+                "application/json")
+        };
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            AppLogger.Error($"Ollama model deletion failed for {exactModel}. HTTP {(int)response.StatusCode}: {body}");
+            throw new HttpRequestException(
+                string.IsNullOrWhiteSpace(body)
+                    ? $"Ollama could not delete '{exactModel}'. HTTP {(int)response.StatusCode}."
+                    : body);
+        }
+
+        AppLogger.Info($"Ollama model deleted successfully: {exactModel}");
+    }
+
     private static ModelInfo CreateFromTags(JsonElement item)
     {
         var raw = GetString(item, "name") ?? GetString(item, "model") ?? "";
@@ -181,7 +215,6 @@ public sealed class OllamaScanner
             var root = doc.RootElement;
             var details = GetObject(root, "details");
 
-            // The standard Ollama response places the two fields here.
             model.ParameterSize = FirstReal(
                 GetString(details, "parameter_size"),
                 GetString(details, "parameterSize"),
@@ -214,7 +247,6 @@ public sealed class OllamaScanner
                 ? $"https://ollama.com/library/{model.Name}"
                 : $"https://ollama.com/{model.Publisher}/{model.Name}";
 
-            // Last-resort inference is only used when Ollama omitted the field.
             ApplyNameFallbacks(model, exactModel);
 
             model.MetadataUpdatedUtc = DateTime.Now;

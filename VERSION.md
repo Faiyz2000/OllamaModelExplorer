@@ -1,5 +1,23 @@
 # Ollama Model Explorer Version
 
+## Version 0.6.4
+
+Date: 2026-09-02
+
+### Changes in 0.6.4
+
+- Added a **Delete** button to the main model toolbar.
+- The Delete button is enabled only when exactly one installed model is selected.
+- Added an explicit confirmation dialog before deletion; choosing No/cancel performs no deletion.
+- Deletion uses Ollama's local `http://localhost:11434/api/delete` endpoint, so model removal is performed by Ollama rather than by directly manipulating blobs/manifests.
+- After successful deletion, the application performs a fresh local model scan so the DataGrid reflects the current Ollama inventory.
+- Added logging for deletion requests, cancellation, success, and errors.
+- Preserved all existing scanning, metadata, RAM estimation, online catalog, comparison, details, logging, filtering, and database functionality.
+
+### Pre-update snapshot
+
+- `versions/v0.6.2-pre-delete-button` — repository snapshot created before the 0.6.4 Delete-button update.
+
 ## Version 0.6.2
 
 Date: 2026-08-29

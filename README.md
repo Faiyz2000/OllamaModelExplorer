@@ -1,4 +1,4 @@
-# Ollama Model Explorer v5
+# Ollama Model Explorer v0.6.4
 
 ## Major fixes
 
@@ -17,3 +17,8 @@ The application expects the selected root to contain:
 - `manifests/registry.ollama.ai`
 
 Ollama must be running at `http://localhost:11434`.
+
+
+## Delete installed models
+
+Version 0.6.4 adds a Delete button. Select exactly one installed model, click **Delete**, and confirm the warning dialog. The application calls Ollama's local delete API and then performs a fresh scan. It never manually removes Ollama blobs/manifests.

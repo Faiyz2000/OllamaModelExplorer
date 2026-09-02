@@ -1,3 +1,4 @@
+using OllamaModelExplorer.Services;
 using OllamaModelExplorer.UI;
 
 namespace OllamaModelExplorer;
@@ -8,6 +9,8 @@ internal static class Program
     static void Main()
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainFormOnline());
+        var form = new MainFormOnline();
+        DeleteModelFeature.Attach(form);
+        Application.Run(form);
     }
 }
