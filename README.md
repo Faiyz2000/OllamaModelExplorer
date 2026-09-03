@@ -1,4 +1,4 @@
-# Ollama Model Explorer v0.6.6
+# Ollama Model Explorer v0.6.7
 
 ## Major fixes and features
 
@@ -14,11 +14,17 @@
 
 ## Model grid
 
-The main grid includes a **RAM Required** column. It displays an estimated per-model RAM requirement based on the model's on-disk size plus conservative runtime overhead. It is **not** the computer's current free/available RAM.
+The main grid includes a **RAM Required / Available** column. Each row displays the estimated RAM required to run that model followed by the PC's actual currently available physical RAM, in the format:
 
-The **RAM Required** column is sortable. Click its header to sort from lowest to highest estimated RAM requirement; click it again to reverse the order. The header displays the active ascending/descending sort glyph. RAM sorting remains active when filters rebuild the grid until another column is selected.
+`Required RAM, Actual available RAM`
 
-The project keeps `Services/RamEstimator.cs` as the calculation source and `Services/RamColumnFeature.cs` as the UI integration and sorting layer.
+For example: `12.4 GB, 18.7 GB`.
+
+The required RAM is a per-model estimate based on model size plus conservative runtime overhead. The actual available RAM is read directly from Windows and refreshed every second while the application is running, without rescanning the Ollama model inventory.
+
+The **RAM Required / Available** column is sortable. Click its header to sort from lowest to highest estimated required RAM; click it again to reverse the order. Sorting uses the underlying numeric required-RAM estimate, not the displayed text, so the live available-RAM value does not affect the sort order. The header displays the active ascending/descending sort glyph, and RAM sorting remains active when filters rebuild the grid until another column is selected.
+
+The project keeps `Services/RamEstimator.cs` as the calculation source and `Services/RamColumnFeature.cs` as the UI integration, live-memory, and sorting layer.
 
 ## Delete installed models
 
