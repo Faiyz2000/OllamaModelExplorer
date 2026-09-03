@@ -4,8 +4,8 @@ using OllamaModelExplorer.Models;
 namespace OllamaModelExplorer.Services;
 
 /// <summary>
-/// Adds the v0.6.4 Delete action to the existing online main form without
-/// coupling the feature to the form's private UI implementation.
+/// Adds the Delete Model action to the existing online main form without coupling
+/// the feature to the form's private UI implementation.
 /// </summary>
 public static class DeleteModelFeature
 {
@@ -21,7 +21,7 @@ public static class DeleteModelFeature
         var button = new Button
         {
             Name = "OllamaDeleteButton",
-            Text = "Delete",
+            Text = "Delete Model",
             AutoSize = true,
             Enabled = false
         };
