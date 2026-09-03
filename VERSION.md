@@ -1,21 +1,31 @@
 # Ollama Model Explorer Version
 
-## Version 0.6.6
+## Version 0.6.7
 
 Date: 2026-09-03
 
-### Changes in 0.6.6
+### Changes in 0.6.7
+
+- Extended the **RAM Required / Available** column to show both values in the format `Required RAM, Actual available RAM`.
+- Required RAM remains the per-model estimate used for determining the model's approximate runtime memory requirement.
+- Actual available RAM is read directly from Windows physical-memory status using `GlobalMemoryStatusEx`.
+- The actual available RAM value is refreshed live every second while the application is running; the model inventory is not rescanned for this refresh.
+- RAM sorting remains numeric by required RAM, independent of the live available-RAM display.
+- Preserved all existing scanning, metadata, online catalog, comparison, details, logging, filtering, deletion, and disposable local database behavior.
+
+### Pre-update snapshot
+
+- `v0.6.6-pre-ram-sort` — Git branch snapshot created before the live RAM update.
+
+## Version 0.6.6
+
+Date: 2026-09-03
 
 - Enabled sorting for the **RAM Required** column.
 - RAM Required now sorts numerically by the estimated RAM requirement rather than alphabetically by its displayed text.
 - Clicking the RAM Required header toggles between ascending and descending order.
 - Added the ascending/descending sort glyph to the RAM Required header.
 - RAM sorting remains active when filters rebuild the model grid until another column is selected for sorting.
-- Preserved all existing scanning, metadata, online catalog, comparison, details, logging, filtering, deletion, and disposable local database behavior.
-
-### Pre-update snapshot
-
-- `v0.6.6-pre-ram-sort` — Git branch snapshot created before the 0.6.6 update.
 
 ## Version 0.6.5
 
@@ -26,11 +36,6 @@ Date: 2026-09-03
 - Added `Services/RamColumnFeature.cs` and enabled it from `Program.cs`.
 - Restored and explicitly labeled the **Delete Model** toolbar button.
 - Preserved the Ollama local delete API workflow, confirmation, logging, and post-delete rescan.
-- Preserved existing scanning, metadata, online catalog, comparison, details, logging, filtering, and disposable local database behavior.
-
-### Pre-update snapshot
-
-- `v0.6.5-pre-ram-column` — Git branch snapshot created before the 0.6.5 update.
 
 ## Version 0.6.4
 
