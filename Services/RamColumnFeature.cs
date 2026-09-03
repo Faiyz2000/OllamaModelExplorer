@@ -1,21 +1,22 @@
 using System.ComponentModel;
 using System.Collections;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using OllamaModelExplorer.Models;
 
 namespace OllamaModelExplorer.Services;
 
 /// <summary>
 /// Adds the per-model RAM requirement column to the existing main model grid.
-/// The value is an estimate of RAM required to load the model, not current free system RAM.
-/// Supports ascending/descending sorting and a sort glyph.
+/// The displayed value is "required RAM, actual available RAM".
+/// Required RAM is a per-model estimate; available RAM is read live from Windows.
+/// Supports ascending/descending sorting by required RAM and a sort glyph.
 /// </summary>
 public static class RamColumnFeature
 {
     private const string ColumnName = "RamRequiredColumn";
     private static bool _ramSortActive;
     private static ListSortDirection _ramSortDirection = ListSortDirection.Ascending;
-    private static int _lastHeaderColumn = -1;
 
     public static void Attach(Form form)
     {
@@ -30,8 +31,8 @@ public static class RamColumnFeature
             column = new DataGridViewTextBoxColumn
             {
                 Name = ColumnName,
-                HeaderText = "RAM Required",
-                Width = 125,
+                HeaderText = "RAM Required / Available",
+                Width = 175,
                 ReadOnly = true,
                 SortMode = DataGridViewColumnSortMode.Programmatic
             };
@@ -41,6 +42,8 @@ public static class RamColumnFeature
         }
         else
         {
+            column.HeaderText = "RAM Required / Available";
+            column.Width = 175;
             column.SortMode = DataGridViewColumnSortMode.Programmatic;
         }
 
@@ -53,7 +56,11 @@ public static class RamColumnFeature
             var property = grid.Rows[e.RowIndex].DataBoundItem.GetType()
                 .GetProperty("Model", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (property?.GetValue(grid.Rows[e.RowIndex].DataBoundItem) is ModelInfo model)
-                e.Value = RamEstimator.FormatGiB(RamEstimator.EstimateRequiredRamBytes(model));
+            {
+                var required = RamEstimator.EstimateRequiredRamBytes(model);
+                var available = GetAvailablePhysicalRamBytes();
+                e.Value = $"{RamEstimator.FormatGiB(required)}, {RamEstimator.FormatGiB(available)}";
+            }
         };
 
         // MouseDown runs before MainFormOnline's ColumnHeaderMouseClick handler.
@@ -64,7 +71,6 @@ public static class RamColumnFeature
             var hit = grid.HitTest(e.X, e.Y);
             if (hit.Type != DataGridViewHitTestType.ColumnHeader) return;
 
-            _lastHeaderColumn = hit.ColumnIndex;
             if (hit.ColumnIndex == ramColumn.Index)
             {
                 _ramSortDirection = _ramSortActive && _ramSortDirection == ListSortDirection.Ascending
@@ -75,7 +81,7 @@ public static class RamColumnFeature
             else
             {
                 _ramSortActive = false;
-                ClearRamSortGlyph(grid, ramColumn);
+                ClearRamSortGlyph(ramColumn);
             }
         };
 
@@ -89,7 +95,18 @@ public static class RamColumnFeature
         {
             if (_ramSortActive)
                 SortRamRows(grid, ramColumn);
+            grid.InvalidateColumn(ramColumn.Index);
         };
+
+        // Refresh only the live available-RAM portion every second without rescanning models.
+        var liveRamTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        liveRamTimer.Tick += (_, _) =>
+        {
+            if (!form.IsDisposed && grid.IsHandleCreated)
+                grid.InvalidateColumn(ramColumn.Index);
+        };
+        liveRamTimer.Start();
+        form.Disposed += (_, _) => liveRamTimer.Dispose();
     }
 
     private static void SortRamRows(DataGridView grid, DataGridViewColumn ramColumn)
@@ -132,9 +149,34 @@ public static class RamColumnFeature
             : SortOrder.Descending;
     }
 
-    private static void ClearRamSortGlyph(DataGridView grid, DataGridViewColumn ramColumn)
+    private static void ClearRamSortGlyph(DataGridViewColumn ramColumn)
     {
         ramColumn.HeaderCell.SortGlyphDirection = SortOrder.None;
+    }
+
+    private static ulong GetAvailablePhysicalRamBytes()
+    {
+        var status = new MEMORYSTATUSEX();
+        status.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
+        return GlobalMemoryStatusEx(ref status) ? status.ullAvailPhys : 0UL;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
     }
 
     private static T? FindControl<T>(Control parent) where T : Control
