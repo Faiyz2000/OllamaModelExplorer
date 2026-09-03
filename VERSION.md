@@ -1,10 +1,25 @@
 # Ollama Model Explorer Version
 
-## Version 0.6.5
+## Version 0.6.6
 
 Date: 2026-09-03
 
-### Changes in 0.6.5
+### Changes in 0.6.6
+
+- Enabled sorting for the **RAM Required** column.
+- RAM Required now sorts numerically by the estimated RAM requirement rather than alphabetically by its displayed text.
+- Clicking the RAM Required header toggles between ascending and descending order.
+- Added the ascending/descending sort glyph to the RAM Required header.
+- RAM sorting remains active when filters rebuild the model grid until another column is selected for sorting.
+- Preserved all existing scanning, metadata, online catalog, comparison, details, logging, filtering, deletion, and disposable local database behavior.
+
+### Pre-update snapshot
+
+- `v0.6.6-pre-ram-sort` — Git branch snapshot created before the 0.6.6 update.
+
+## Version 0.6.5
+
+Date: 2026-09-03
 
 - Restored the **RAM Required** column to the main model grid.
 - RAM Required is a per-model estimate based on model size plus conservative runtime overhead; it is not the PC's current free RAM.
