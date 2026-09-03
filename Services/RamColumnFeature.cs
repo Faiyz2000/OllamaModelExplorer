@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Collections;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using OllamaModelExplorer.Models;
 
 namespace OllamaModelExplorer.Services;
@@ -58,7 +57,7 @@ public static class RamColumnFeature
             if (property?.GetValue(grid.Rows[e.RowIndex].DataBoundItem) is ModelInfo model)
             {
                 var required = RamEstimator.EstimateRequiredRamBytes(model);
-                var available = GetAvailablePhysicalRamBytes();
+                var available = RamEstimator.GetAvailableRamBytes();
                 e.Value = $"{RamEstimator.FormatGiB(required)}, {RamEstimator.FormatGiB(available)}";
             }
         };
@@ -152,31 +151,6 @@ public static class RamColumnFeature
     private static void ClearRamSortGlyph(DataGridViewColumn ramColumn)
     {
         ramColumn.HeaderCell.SortGlyphDirection = SortOrder.None;
-    }
-
-    private static ulong GetAvailablePhysicalRamBytes()
-    {
-        var status = new MEMORYSTATUSEX();
-        status.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
-        return GlobalMemoryStatusEx(ref status) ? status.ullAvailPhys : 0UL;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct MEMORYSTATUSEX
-    {
-        public uint dwLength;
-        public uint dwMemoryLoad;
-        public ulong ullTotalPhys;
-        public ulong ullAvailPhys;
-        public ulong ullTotalPageFile;
-        public ulong ullAvailPageFile;
-        public ulong ullTotalVirtual;
-        public ulong ullAvailVirtual;
-        public ulong ullAvailExtendedVirtual;
     }
 
     private static T? FindControl<T>(Control parent) where T : Control
