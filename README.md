@@ -1,4 +1,4 @@
-# Ollama Model Explorer v0.6.5
+# Ollama Model Explorer v0.6.6
 
 ## Major fixes and features
 
@@ -16,7 +16,9 @@
 
 The main grid includes a **RAM Required** column. It displays an estimated per-model RAM requirement based on the model's on-disk size plus conservative runtime overhead. It is **not** the computer's current free/available RAM.
 
-The project keeps `Services/RamEstimator.cs` as the calculation source and `Services/RamColumnFeature.cs` as the UI integration layer.
+The **RAM Required** column is sortable. Click its header to sort from lowest to highest estimated RAM requirement; click it again to reverse the order. The header displays the active ascending/descending sort glyph. RAM sorting remains active when filters rebuild the grid until another column is selected.
+
+The project keeps `Services/RamEstimator.cs` as the calculation source and `Services/RamColumnFeature.cs` as the UI integration and sorting layer.
 
 ## Delete installed models
 
