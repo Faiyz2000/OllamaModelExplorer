@@ -25,10 +25,7 @@ public sealed class ModelInformationUpdateForm : Form
         _database = database;
         _service = service;
         _existing = existing.ToList();
-
-        // Information synchronization deliberately ignores the active grid filters.
-        // Always use the complete model inventory so Found and Missing models are both checked.
-        _models = new Database().GetAll();
+        _models = models.ToList();
 
         Text = "Model Information Update";
         Width = 720;
@@ -48,7 +45,7 @@ public sealed class ModelInformationUpdateForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
-        _current.Text = $"Preparing { _models.Count } model(s)...";
+        _current.Text = $"Preparing {_models.Count} model(s)...";
         _current.Dock = DockStyle.Fill;
         _current.AutoEllipsis = true;
         panel.Controls.Add(_current, 0, 0);
