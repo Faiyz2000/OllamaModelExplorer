@@ -7,14 +7,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.7.0</Version>
-    <AssemblyVersion>0.7.0.0</AssemblyVersion>
-    <FileVersion>0.7.0.0</FileVersion>
-    <InformationalVersion>0.7.0 - Offline model information history, backup/restore, background updates, and Found/Missing status</InformationalVersion>
+    <Version>0.7.1</Version>
+    <AssemblyVersion>0.7.1.0</AssemblyVersion>
+    <FileVersion>0.7.1.0</FileVersion>
+    <InformationalVersion>0.7.1 - Model information history, backup/restore, background updates, font controls, Found/Missing status</InformationalVersion>
 
+    <!-- Embed the repository icon in the Windows executable. -->
     <ApplicationIcon>OllamaIcon.ico</ApplicationIcon>
+    <Win32Icon>OllamaIcon.ico</Win32Icon>
 
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- Keep the eventual EXE independent of a pre-installed .NET runtime. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -44,7 +47,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="OllamaIcon.ico" />
+    <Content Include="OllamaIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
