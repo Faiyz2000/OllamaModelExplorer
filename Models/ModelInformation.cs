@@ -1,6 +1,6 @@
 namespace OllamaModelExplorer.Models;
 
-public sealed class ModelInformation
+public sealed record ModelInformation
 {
     public long Id { get; set; }
     public string Publisher { get; set; } = "";
