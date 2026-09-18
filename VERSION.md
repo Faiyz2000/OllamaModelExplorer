@@ -1,27 +1,21 @@
 # Ollama Model Explorer Version
 
-## Version 0.7.4
+## Version 0.7.5
 
 Date: 2026-09-19
 
-### Multi-model deletion
+### Project-wide online access policy
 
-- **Delete Model** now supports multiple selected rows because the main DataGridView already allows multi-selection.
-- The button is enabled whenever one or more valid model rows are selected.
-- Installed/Found models are deleted sequentially through the local Ollama service.
-- Missing models are removed sequentially from the local model catalog without contacting the Ollama service.
-- Mixed selections containing both Found and Missing models are supported.
-- A single confirmation dialog summarizes the number and type of selected models before deletion.
-- Deletion is processed sequentially to avoid flooding the local Ollama service when many models are selected.
-- Partial failures are reported without hiding successful deletions.
-- The main model scan is refreshed once after the batch operation.
-- Preserved model-information history remains independent from removal of missing model catalog records.
+- The explicit **Update Model Information** action is the only user action permitted to access the Internet / Ollama.com.
+- Local communication with the Ollama service remains permitted for normal local model operations, including scanning installed models and deleting installed models.
+- The previous **Check for New** action contacted Ollama.com independently. It is now disabled so it cannot perform an online request outside the approved information-update workflow.
+- Local model information, filtering, sorting, comparison, database backup/restore, and other local operations do not access the Internet.
 
-### Version 0.7.3 features retained
+### Version 0.7.4 features retained
 
-- **Delete Model** is enabled for any selected model, whether its status is **Found** or **Missing**.
-- For a **Found/installed** model, Delete Model removes the actual model through the local Ollama service.
-- For a **Missing** model, Delete Model removes the model's local catalog record without contacting the Ollama service.
+- **Delete Model** supports multiple selected rows, including mixed Found and Missing models.
+- Installed models are deleted through the local Ollama service; Missing models are removed from the local model catalog.
+- Deletions are processed sequentially and failures do not prevent remaining selected models from being attempted.
 
 ### Version 0.7.2 features retained
 
@@ -52,5 +46,5 @@ Date: 2026-09-19
 
 - Live RAM Required / Available column and numeric RAM sorting.
 - Local model scanning and deletion through the local Ollama service.
-- Online catalog and Check for New functionality.
+- Online catalog cache and existing local filters remain available without network access; online refresh is restricted to the explicit Model Information Update action.
 - Search, filtering, comparison, logging, and existing UI workflow.
