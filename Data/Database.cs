@@ -184,6 +184,18 @@ public sealed class Database
         tx.Commit();
     }
 
+    public bool DeleteModelRecord(ModelInfo model)
+    {
+        if (model is null) throw new ArgumentNullException(nameof(model));
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM Models WHERE Publisher=$publisher AND Name=$name AND Tag=$tag;";
+        Add(cmd, "$publisher", string.IsNullOrWhiteSpace(model.Publisher) ? "library" : model.Publisher);
+        Add(cmd, "$name", model.Name);
+        Add(cmd, "$tag", string.IsNullOrWhiteSpace(model.Tag) ? "latest" : model.Tag);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
     public List<ModelInfo> GetAll()
     {
         var result=new List<ModelInfo>(); using var c=Open(); using var cmd=c.CreateCommand();
