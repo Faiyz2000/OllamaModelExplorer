@@ -1,18 +1,19 @@
 # Ollama Model Explorer Version
 
-## Version 0.7.1
+## Version 0.7.2
 
 Date: 2026-09-18
 
 ### Corrections and improvements
 
-- Model-information synchronization now checks the **complete model inventory**, not the currently filtered/displayed grid rows. Both Found and Missing models are included.
-- The update form explicitly reports the complete model count and ignores active main-grid filters.
-- The update action button changes from **Cancel** to **Close** when the background task finishes, including successful completion, cancellation, and failure.
-- Added **increase font**, **decrease font**, and **Reset Font** controls to the Model Information form. The information text can be adjusted from 8 pt through 24 pt.
-- Confirmed **Backup DB** and **Restore DB** controls are part of the Model Information form. Restore validates the selected database and creates an automatic pre-restore safety backup.
-- Strengthened Windows application-icon configuration by explicitly assigning `OllamaIcon.ico` to both the application icon and Win32 icon metadata and retaining it through publish output.
-- Kept the project configured for a future self-contained, single-file `win-x64` publish. No EXE is generated automatically.
+- Model-information synchronization now always processes the complete model inventory, regardless of active grid filters, search, category, size, or Installed/Enriched/New filters. Found and Missing models are both included.
+- The update confirmation explicitly reports that grid filters are ignored.
+- The non-modal update form changes its action from **Cancel** to **Close** when the background task finishes, including successful completion, cancellation, and failure.
+- The existing double-click row workflow for opening model information is retained. No different grid interaction is introduced without notice.
+- Model Information font controls are retained: increase, decrease, and Reset Font, with an 8–24 pt range.
+- Backup DB and Restore DB controls are retained, including automatic pre-restore safety backup.
+- Windows executable icon configuration is retained using `OllamaIcon.ico` as both `ApplicationIcon` and `Win32Icon`, and the icon is copied to publish output.
+- The project remains configured for a self-contained, single-file `win-x64` publish. No EXE is generated automatically.
 
 ### Version 0.7.0 features retained
 
