@@ -36,22 +36,19 @@ public sealed class OllamaOnlineCatalogService
         var updated = new List<OnlineModel>();
         int completed = 0;
         using var gate = new SemaphoreSlim(4, 4);
-
         var tasks = installedModels.Select(async model =>
         {
             await gate.WaitAsync(cancellationToken);
             try
             {
                 var online = await FetchModelPageAsync(model.Publisher, model.Name, cancellationToken);
-                if (online is not null)
-                    lock (updated) updated.Add(online with { SeenUtc = now });
+                if (online is not null) lock (updated) updated.Add(online with { SeenUtc = now });
                 var done = Interlocked.Increment(ref completed);
                 progress?.Report($"Updating Ollama.com information: {done}/{installedModels.Count}");
             }
             finally { gate.Release(); }
         });
         await Task.WhenAll(tasks);
-
         var merged = old.Concat(catalog.Select(x => x with { SeenUtc = now })).Concat(updated)
             .GroupBy(Key, StringComparer.OrdinalIgnoreCase).Select(g => g.Last())
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -71,6 +68,42 @@ public sealed class OllamaOnlineCatalogService
         return new CheckResult(catalog.Count, newModels, now);
     }
 
+    public async Task<ModelInformation?> FetchModelInformationAsync(ModelInfo model, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(model.Name)) return null;
+        var publisher = string.IsNullOrWhiteSpace(model.Publisher) ? "library" : model.Publisher;
+        var path = publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
+            ? $"library/{Uri.EscapeDataString(model.Name)}"
+            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(model.Name)}";
+        var url = $"https://ollama.com/{path}";
+        try
+        {
+            using var response = await _http.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
+            var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            var description = ExtractMeta(html, "description") ?? ExtractMeta(html, "og:description") ?? "";
+            var capabilities = ExtractCapabilities(CleanHtml(html));
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(description)) parts.Add("Description:\r\n" + WebUtility.HtmlDecode(description).Trim());
+            if (!string.IsNullOrWhiteSpace(capabilities)) parts.Add("Capabilities:\r\n" + capabilities.Replace("|", ", "));
+            parts.Add("Source URL:\r\n" + url);
+            var text = string.Join("\r\n\r\n", parts);
+            if (string.IsNullOrWhiteSpace(description) && string.IsNullOrWhiteSpace(capabilities)) return null;
+            return new ModelInformation
+            {
+                Publisher = publisher,
+                Name = model.Name,
+                Tag = string.IsNullOrWhiteSpace(model.Tag) ? "latest" : model.Tag,
+                InformationText = text,
+                SourceUrl = url,
+                AddedUtc = DateTime.UtcNow,
+                Status = "Update"
+            };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return null; }
+    }
+
     public IReadOnlyList<OnlineModel> LoadCache()
     {
         try
@@ -81,10 +114,7 @@ public sealed class OllamaOnlineCatalogService
         catch { return Array.Empty<OnlineModel>(); }
     }
 
-    private void SaveCache(IEnumerable<OnlineModel> models)
-    {
-        File.WriteAllText(_cachePath, JsonSerializer.Serialize(models, new JsonSerializerOptions { WriteIndented = true }));
-    }
+    private void SaveCache(IEnumerable<OnlineModel> models) => File.WriteAllText(_cachePath, JsonSerializer.Serialize(models, new JsonSerializerOptions { WriteIndented = true }));
 
     private async Task<List<OnlineModel>> DownloadCatalogAsync(CancellationToken cancellationToken)
     {

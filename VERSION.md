@@ -1,10 +1,35 @@
 # Ollama Model Explorer Version
 
+## Version 0.7.0
+
+Date: 2026-09-18
+
+### Changes in 0.7.0
+
+- Added a separate SQLite model-information database; it is independent from the local model inventory database.
+- Added a dedicated **Model Information** form that displays preserved information history.
+- Model information is append-only: successful online updates are added as dated snapshots and never overwrite or delete earlier information.
+- A missing, deleted, blank, or failed Ollama.com page cannot erase previously preserved model information.
+- Added a non-modal **Model Information Update** form with asynchronous background fetching and progress reporting; the main project remains usable during updates.
+- Only models currently displayed in the main model grid are sent to the online information update process.
+- New information is staged in memory and committed only when the update form closes.
+- Added **Backup DB** and **Restore DB** to the Model Information form.
+- Restore validates the database and creates an automatic pre-restore safety backup.
+- Added an explicit **Found / Missing** installation-status column to the main model grid. Status reflects the current local model inventory and does not delete information for missing models.
+- Preserved runtime independence: model information is about models, not a dependency on Ollama as the runtime used to execute them.
+- Retained `OllamaIcon.ico` as the application/EXE icon.
+- Kept the project self-contained and single-file publish configuration for `win-x64`.
+
+### Existing functionality retained
+
+- Live RAM Required / Available column and numeric RAM sorting.
+- Local model scanning and deletion through the local Ollama service.
+- Online catalog and Check for New functionality.
+- Search, filtering, comparison, logging, and existing UI workflow.
+
 ## Version 0.6.7
 
 Date: 2026-09-03
-
-### Changes in 0.6.7
 
 - Extended the **RAM Required / Available** column to show both values in the format `Required RAM, Actual available RAM`.
 - Required RAM remains the per-model estimate used for determining the model's approximate runtime memory requirement.
@@ -25,7 +50,7 @@ Date: 2026-09-03
 - RAM Required now sorts numerically by the estimated RAM requirement rather than alphabetically by its displayed text.
 - Clicking the RAM Required header toggles between ascending and descending order.
 - Added the ascending/descending sort glyph to the RAM Required header.
-- RAM sorting remains active when filters rebuild the model grid until another column is selected for sorting.
+- RAM sorting remains active when filters rebuild the grid until another column is selected for sorting.
 
 ## Version 0.6.5
 
@@ -36,29 +61,3 @@ Date: 2026-09-03
 - Added `Services/RamColumnFeature.cs` and enabled it from `Program.cs`.
 - Restored and explicitly labeled the **Delete Model** toolbar button.
 - Preserved the Ollama local delete API workflow, confirmation, logging, and post-delete rescan.
-
-## Version 0.6.4
-
-Date: 2026-09-02
-
-- Added the Delete model workflow using Ollama's local `/api/delete` endpoint.
-- Added confirmation, logging, and a fresh scan after successful deletion.
-- Preserved existing functionality.
-
-## Version 0.6.2
-
-Date: 2026-08-29
-
-- Configured the Windows application executable to use `OllamaIcon.ico`.
-- Added `BUTTONS.md` documenting controls and their local/online behavior.
-
-## Version 0.6.1
-
-Date: 2026-08-29
-
-- Fixed duplicate source/resource compilation problems by using an explicit compile list.
-- Retained SQLite, Ollama scanning, metadata handling, RAM estimation, logging, online updates, and self-contained single-file publishing.
-
-## Version 0.6.0 and earlier
-
-Previous releases established the Ollama model inventory, metadata enrichment, filtering, comparison, logging, online catalog, and Windows single-file publishing foundations.

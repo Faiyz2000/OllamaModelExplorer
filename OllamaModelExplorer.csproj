@@ -7,10 +7,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.6.7</Version>
-    <AssemblyVersion>0.6.7.0</AssemblyVersion>
-    <FileVersion>0.6.7.0</FileVersion>
-    <InformationalVersion>0.6.7 - Live available RAM in model RAM column</InformationalVersion>
+    <Version>0.7.0</Version>
+    <AssemblyVersion>0.7.0.0</AssemblyVersion>
+    <FileVersion>0.7.0.0</FileVersion>
+    <InformationalVersion>0.7.0 - Offline model information history, backup/restore, background updates, and Found/Missing status</InformationalVersion>
 
     <ApplicationIcon>OllamaIcon.ico</ApplicationIcon>
 
@@ -24,11 +24,14 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Data\Database.cs" />
+    <Compile Include="Data\ModelInformationDatabase.cs" />
     <Compile Include="Models\ManifestDocument.cs" />
     <Compile Include="Models\ModelInfo.cs" />
+    <Compile Include="Models\ModelInformation.cs" />
     <Compile Include="Services\AppLogger.cs" />
     <Compile Include="Services\CategoryService.cs" />
     <Compile Include="Services\OllamaOnlineCatalogService.cs" />
+    <Compile Include="Services\ModelInformationUpdateService.cs" />
     <Compile Include="Services\OllamaScanner.cs" />
     <Compile Include="Services\RamEstimator.cs" />
     <Compile Include="Services\DeleteModelFeature.cs" />
@@ -36,6 +39,8 @@
     <Compile Include="UI\LogForm.cs" />
     <Compile Include="UI\MainForm.cs" />
     <Compile Include="UI\MainFormOnline.cs" />
+    <Compile Include="UI\ModelInformationForm.cs" />
+    <Compile Include="UI\ModelInformationUpdateForm.cs" />
   </ItemGroup>
 
   <ItemGroup>

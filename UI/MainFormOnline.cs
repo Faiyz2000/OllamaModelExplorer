@@ -11,6 +11,8 @@ public sealed class MainFormOnline : Form
     private readonly Database _db = new();
     private readonly OllamaScanner _scanner = new();
     private readonly OllamaOnlineCatalogService _online = new();
+    private readonly ModelInformationDatabase _informationDb = new();
+    private readonly ModelInformationUpdateService _informationUpdater;
 
     private readonly TextBox _search = new();
     private readonly ComboBox _category = new();
@@ -24,10 +26,13 @@ public sealed class MainFormOnline : Form
     private readonly Button _selectFolderButton = new();
     private readonly Button _updateButton = new();
     private readonly Button _checkNewButton = new();
+    private readonly Button _informationButton = new();
+    private ModelInformationUpdateForm? _informationUpdateForm;
 
     private string _ollamaRoot = "";
     private List<ModelInfo> _allModels = new();
     private List<OllamaOnlineCatalogService.OnlineModel> _newOnline = new();
+    private List<ModelInformation> _modelInformation = new();
     private int _sortColumn = 1;
     private ListSortDirection _sortDirection = ListSortDirection.Ascending;
 
@@ -38,6 +43,7 @@ public sealed class MainFormOnline : Form
         Width = 1500;
         Height = 850;
         MinimumSize = new Size(1100, 650);
+        _informationUpdater = new ModelInformationUpdateService(_online);
         BuildUi();
         LoadModels();
     }
@@ -60,15 +66,18 @@ public sealed class MainFormOnline : Form
         _scanButton.Text = "Scan Local Models";
         _scanButton.AutoSize = true;
         _scanButton.Click += async (_, _) => await ScanLocalAsync();
-        _updateButton.Text = "Update From Ollama.com";
+        _updateButton.Text = "Update Model Information";
         _updateButton.AutoSize = true;
-        _updateButton.Click += async (_, _) => await UpdateOnlineAsync();
+        _updateButton.Click += (_, _) => StartModelInformationUpdate();
+        _informationButton.Text = "Model Information";
+        _informationButton.AutoSize = true;
+        _informationButton.Click += (_, _) => ShowModelInformation();
         _checkNewButton.Text = "Check for New";
         _checkNewButton.AutoSize = true;
         _checkNewButton.Click += async (_, _) => await CheckForNewAsync();
         var compare = new Button { Text = "Compare Selected", AutoSize = true };
         compare.Click += (_, _) => CompareSelected();
-        toolbar.Controls.AddRange(new Control[] { _selectFolderButton, _scanButton, _updateButton, _checkNewButton, compare });
+        toolbar.Controls.AddRange(new Control[] { _selectFolderButton, _scanButton, _updateButton, _informationButton, _checkNewButton, compare });
 
         var filter = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(18, 7, 18, 5), WrapContents = false };
         _search.Width = 260;
@@ -119,6 +128,7 @@ public sealed class MainFormOnline : Form
         _grid.RowTemplate.Height = 30;
         AddColumn("#", "RowNumber", 55, typeof(int));
         AddColumn("Name", "DisplayName", 300);
+        AddColumn("Status", "InstallationStatus", 90);
         AddColumn("Size", "SizeDisplay", 100);
         AddColumn("Publisher", "Publisher", 140);
         AddColumn("Parameters", "ParameterSize", 110);
@@ -155,8 +165,7 @@ public sealed class MainFormOnline : Form
         var map = cache.ToDictionary(x => $"{x.Publisher}/{x.Name}", StringComparer.OrdinalIgnoreCase);
         foreach (var m in _allModels)
         {
-            if (!map.TryGetValue($"{m.Publisher}/{m.Name}", out var online))
-                continue;
+            if (!map.TryGetValue($"{m.Publisher}/{m.Name}", out var online)) continue;
             if (!string.IsNullOrWhiteSpace(online.Description)) m.Description = online.Description;
             if (!string.IsNullOrWhiteSpace(online.Capabilities)) m.Capabilities = online.Capabilities;
             if (!string.IsNullOrWhiteSpace(online.OllamaUrl)) m.OllamaUrl = online.OllamaUrl;
@@ -179,7 +188,6 @@ public sealed class MainFormOnline : Form
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             _ollamaRoot = dialog.SelectedPath;
         }
-
         try
         {
             SetBusy(true);
@@ -202,41 +210,51 @@ public sealed class MainFormOnline : Form
         finally { SetBusy(false); }
     }
 
-    private async Task UpdateOnlineAsync()
+    private void StartModelInformationUpdate()
     {
-        var answer = MessageBox.Show(this, "This is the only operation that connects to Ollama.com. No model files, prompts, chats, or local paths will be uploaded. Continue?", "Online update approval", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        var displayedModels = _grid.Rows.Cast<DataGridViewRow>()
+            .Select(row => row.DataBoundItem as ModelRow)
+            .Where(row => row is not null)
+            .Select(row => row!.Model)
+            .DistinctBy(model => model.Id)
+            .ToList();
+        if (displayedModels.Count == 0)
+        {
+            MessageBox.Show(this, "There are no models currently displayed in the grid to update.", "Model information update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (_informationUpdateForm is not null && !_informationUpdateForm.IsDisposed)
+        {
+            _informationUpdateForm.Activate();
+            return;
+        }
+        var answer = MessageBox.Show(this,
+            "This operation will contact Ollama.com for the models currently displayed in the grid. Existing information is preserved and new information is appended only. Continue?",
+            "Online model information update", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (answer != DialogResult.Yes) return;
-
-        try
+        _informationDb.SeedFromModels(_allModels);
+        _modelInformation = _informationDb.LoadAll();
+        _informationUpdateForm = new ModelInformationUpdateForm(_informationDb, _informationUpdater, displayedModels, _modelInformation);
+        _informationUpdateForm.FormClosed += (_, _) =>
         {
-            SetBusy(true);
-            var installed = _allModels.Where(x => x.Installed).ToList();
-            var progress = new Progress<string>(x => _summary.Text = x);
-            var result = await _online.UpdateAsync(installed, progress);
-            _newOnline = result.NewlyDiscovered.ToList();
-            ApplyCachedOnlineMetadata();
-            foreach (var m in _allModels) CategoryService.ApplyHeuristics(m);
-            ApplyFilters();
+            _modelInformation = _informationDb.LoadAll();
+            _informationUpdateForm = null;
+        };
+        _informationUpdateForm.Show(this);
+    }
 
-            var message = $"Ollama.com catalog entries: {result.CatalogModels}{Environment.NewLine}" +
-                          $"Installed model pages updated: {result.ExistingModelsUpdated}{Environment.NewLine}" +
-                          $"New models discovered since the previous update: {result.NewlyDiscovered.Count}";
-            if (result.NewlyDiscovered.Count > 0)
-                message += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, result.NewlyDiscovered.Take(30).Select(x => "• " + x.Name));
-            MessageBox.Show(this, message, "Ollama.com update complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "Ollama.com update failed:" + Environment.NewLine + ex.Message, "Online update error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        finally { SetBusy(false); }
+    private void ShowModelInformation()
+    {
+        _informationDb.SeedFromModels(_allModels);
+        _modelInformation = _informationDb.LoadAll();
+        var form = new ModelInformationForm(_informationDb, _allModels, _modelInformation);
+        form.Show(this);
     }
 
     private async Task CheckForNewAsync()
     {
         var answer = MessageBox.Show(this, "Check Ollama.com for newly published models? This will contact Ollama.com but will not send your local model list or any other local data.", "Check for new models", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (answer != DialogResult.Yes) return;
-
         try
         {
             SetBusy(true);
@@ -246,7 +264,7 @@ public sealed class MainFormOnline : Form
             var message = result.NewModels.Count == 0
                 ? $"No new models were detected in the current Ollama.com newest-model catalog.\r\n\r\nCatalog entries checked: {result.CatalogModels}"
                 : $"{result.NewModels.Count} new model(s) detected:\r\n\r\n" + string.Join("\r\n", result.NewModels.Take(50).Select(x => "• " + x.Name));
-            MessageBox.Show(this, message, "Ollama.com new models", MessageBoxButtons.OK, result.NewModels.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Information);
+            MessageBox.Show(this, message, "Ollama.com new models", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
@@ -262,6 +280,7 @@ public sealed class MainFormOnline : Form
         _scanButton.Enabled = !busy;
         _updateButton.Enabled = !busy;
         _checkNewButton.Enabled = !busy;
+        _informationButton.Enabled = !busy;
     }
 
     private void RefreshCategoryList()
@@ -300,7 +319,7 @@ public sealed class MainFormOnline : Form
         SortRows(rows);
         ReNumber(rows);
         _grid.DataSource = new BindingList<ModelRow>(rows);
-        _summary.Text = $"{rows.Count} shown • {_allModels.Count(x => x.Installed)} installed • {FormatBytes(_allModels.Where(x => x.Installed).Sum(x => x.SizeBytes))} local storage • {_allModels.Count(x => x.MetadataUpdatedUtc.HasValue || !string.IsNullOrWhiteSpace(x.Description))} enriched";
+        _summary.Text = $"{rows.Count} shown • {_allModels.Count(x => x.Installed)} installed • {_allModels.Count(x => !x.Installed)} missing • {FormatBytes(_allModels.Where(x => x.Installed).Sum(x => x.SizeBytes))} local storage • {_allModels.Count(x => x.MetadataUpdatedUtc.HasValue || !string.IsNullOrWhiteSpace(x.Description))} enriched";
     }
 
     private IEnumerable<ModelInfo> ApplySizeFilter(IEnumerable<ModelInfo> source) => _size.SelectedIndex switch
@@ -323,17 +342,20 @@ public sealed class MainFormOnline : Form
 
     private void SortRows(List<ModelRow> rows)
     {
-        Comparison<ModelRow>? c = _sortColumn switch
+        var property = _sortColumn >= 0 && _sortColumn < _grid.Columns.Count ? _grid.Columns[_sortColumn].DataPropertyName : "";
+        Comparison<ModelRow>? c = property switch
         {
-            0 => (a, b) => a.RowNumber.CompareTo(b.RowNumber),
-            1 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.DisplayName, b.Model.DisplayName),
-            2 => (a, b) => a.Model.SizeBytes.CompareTo(b.Model.SizeBytes),
-            3 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Publisher, b.Model.Publisher),
-            4 => (a, b) => CompareNatural(a.Model.ParameterSize, b.Model.ParameterSize),
-            5 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Family, b.Model.Family),
-            6 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Quantization, b.Model.Quantization),
-            7 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
-            8 => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
+            "RowNumber" => (a, b) => a.RowNumber.CompareTo(b.RowNumber),
+            "DisplayName" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.DisplayName, b.Model.DisplayName),
+            "InstallationStatus" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.InstallationStatus, b.Model.InstallationStatus),
+            "SizeDisplay" => (a, b) => a.Model.SizeBytes.CompareTo(b.Model.SizeBytes),
+            "Publisher" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Publisher, b.Model.Publisher),
+            "ParameterSize" => (a, b) => CompareNatural(a.Model.ParameterSize, b.Model.ParameterSize),
+            "Family" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Family, b.Model.Family),
+            "Quantization" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Quantization, b.Model.Quantization),
+            "CategoryText" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
+            "ModifiedDisplay" => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
+            "MetadataDisplay" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.MetadataDisplay, b.MetadataDisplay),
             _ => null
         };
         if (c is null) return;
@@ -361,7 +383,7 @@ public sealed class MainFormOnline : Form
 
     private void ShowDetails(ModelInfo m)
     {
-        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
+        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nStatus: {m.InstallationStatus}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
         using var f = new Form { Text = m.DisplayName, Width = 850, Height = 600, StartPosition = FormStartPosition.CenterParent };
         f.Controls.Add(new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Text = text, Font = new Font("Consolas", 10) });
         f.ShowDialog(this);
@@ -394,6 +416,7 @@ public sealed class MainFormOnline : Form
         public ModelRow(ModelInfo model, int rowNumber) { Model = model; RowNumber = rowNumber; }
         public string SizeDisplay => FormatBytes(Model.SizeBytes);
         public string DisplayName => Model.DisplayName;
+        public string InstallationStatus => Model.InstallationStatus;
         public string Publisher => Model.Publisher;
         public string ParameterSize => string.IsNullOrWhiteSpace(Model.ParameterSize) ? "Unknown" : Model.ParameterSize;
         public string Family => Model.Family;

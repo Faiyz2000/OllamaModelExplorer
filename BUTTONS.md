@@ -1,6 +1,6 @@
 # Ollama Model Explorer — Button and Control Reference
 
-Version 0.6.4
+Version 0.7.0
 
 This document describes what each button/control does, whether it accesses the Internet, and what model information it changes.
 
@@ -12,11 +12,9 @@ This document describes what each button/control does, whether it accesses the I
 
 The selected root is expected to contain `blobs` and `manifests\registry.ollama.ai`.
 
-**What happens:** The application immediately starts the local model scan after the folder is selected. The scanner uses Ollama's local API as the authoritative installed-model inventory and uses the selected storage root for local storage/model information.
-
 **Internet:** No. The folder scan itself does not require an Internet connection. Ollama must be running locally at `http://localhost:11434`.
 
-**Database:** The scan updates the local SQLite records. It does not delete the model files. The current Ollama inventory is imported/updated so newly downloaded models can appear.
+**Database:** The local inventory database is updated by the scan. The separate model-information database is not required for ordinary scanning.
 
 ---
 
@@ -24,231 +22,106 @@ The selected root is expected to contain `blobs` and `manifests\registry.ollama.
 
 **Purpose:** Force a fresh synchronization of locally installed models.
 
-**Internet:** No external Internet connection is required. It communicates with the local Ollama service at `http://localhost:11434` and reads the selected local storage directory.
+**Internet:** No external Internet connection is required. It communicates with the local Ollama service at `http://localhost:11434` and reads the selected storage directory.
 
-**What it updates:**
-- Installed model inventory
-- Model names/tags
-- Model IDs
-- Local model sizes
-- Parameters when available from Ollama metadata
-- Model family information
-- Quantization when available
-- Other locally obtainable metadata
-- Installed status
-- Local database records used by the UI
+**What it updates:** Installed model inventory, model names/tags, model IDs, local model sizes, locally obtainable metadata, and installed status.
 
-**Important:** This is the button to use after downloading additional models. It should refresh the local inventory rather than relying on an old model count.
-
-**Does it contact Ollama.com?** No. It is a local synchronization operation.
+**Important:** This is the button to use after downloading additional models. It refreshes the local inventory and the Found/Missing state.
 
 ---
 
-## 3. Update From Ollama.com
+## 3. Update Model Information
 
-**Purpose:** Enrich the local model records with information from the public Ollama catalog and synchronize public catalog information.
+**Purpose:** Retrieve current public model information for the models currently displayed in the main grid.
 
-**Internet:** **Yes.** This is the primary Internet-connected operation in the application.
+**Internet:** **Yes.** This is an explicit, user-started online operation. Normal project use does not contact Ollama.com for this feature.
 
-**What it is intended to update:**
-- Public Ollama model/catalog information
-- Descriptions
-- Public model metadata
-- Information associated with models that exist in the Ollama online catalog
-- Local records with newly retrieved public information
-- Detection information used by the `New on Ollama` filter
+**Behavior:** A separate non-modal progress form performs asynchronous requests. The main project remains usable while the update runs.
 
-**What it does NOT do:**
-- It does not download model weights.
-- It does not start or run models.
-- It does not delete local models.
-- It does not replace the local scan.
-- It does not change the actual Ollama model files.
-
-**Recommended use:** Run `Scan Local Models` when you have changed local models. Run `Update From Ollama.com` when you want current public catalog information or want to check the local inventory against the online Ollama catalog.
+**Important:**
+- Only models currently displayed in the grid are requested.
+- Existing model information is preserved.
+- New information is staged in memory while the update form is open.
+- Database changes are committed only when the update form closes.
+- Information is append-only; successful updates are added below previous information with `Update on dd/MM/yy`.
+- Blank, unavailable, deleted, or failed website information cannot erase existing history.
+- The operation does not download model weights and does not run models.
 
 ---
 
-## 4. Check for New
+## 4. Model Information
 
-**Purpose:** Identify models that are available in the Ollama catalog but are not currently represented in the local model inventory/catalog state.
+**Purpose:** View preserved model information independently of the currently installed model files.
 
-**Internet:** The check is associated with the online Ollama catalog and therefore requires Internet access when the online catalog is queried.
+The form shows whether each model is currently `Found` or `Missing` and displays its preserved information history.
 
-**Important distinction:** `Check for New` is not the same as downloading a model. It only identifies catalog/new-model information; it does not install model weights.
+**Internet:** No. Opening the form does not contact Ollama.com.
 
-The `New on Ollama` filter can then be used to display records marked as new on the Ollama catalog.
+**Database:** The separate model-information SQLite database is accessed through short-lived connections and is not held open during normal use.
+
+**Backup DB:** Creates a portable SQLite backup containing the complete model-information history.
+
+**Restore DB:** Validates and restores a previous model-information database. An automatic pre-restore safety backup is created first.
 
 ---
 
+## 5. Check for New
+
+**Purpose:** Identify models that are available in the Ollama catalog but are not currently represented in the local catalog state.
+
+**Internet:** Yes, after explicit user approval.
+
+**Important distinction:** This is not a model download operation and does not install model weights.
+
 ---
 
-## 6. Delete
+## 6. Installation Status column
+
+The main grid includes a **Status** column showing:
+
+- `Found` — the model is present in the current local inventory.
+- `Missing` — the model is preserved in the inventory/database but is not currently present locally.
+
+The status does not determine whether the Ollama website still contains the model. Website availability and local installation status are separate concepts.
+
+---
+
+## 7. Delete
 
 **Purpose:** Permanently remove the selected installed model from Ollama.
 
-**Selection requirement:** Exactly one installed model must be selected. The button remains disabled otherwise.
+**Selection requirement:** Exactly one installed model must be selected. The application calls Ollama's local `/api/delete` endpoint and then performs a fresh scan.
 
-**Confirmation:** A warning confirmation dialog is always shown before deletion. Selecting **Yes** continues; selecting **No** or closing the dialog cancels the operation and no model is deleted.
+**Internet:** No.
 
-**What happens:** The application sends the exact model name/tag to Ollama's local `http://localhost:11434/api/delete` endpoint. Ollama performs the actual removal of the model. The application does not manually delete blob or manifest files, which avoids corrupting Ollama's content-addressed storage.
+**Database:** The normal local scan refreshes the installed state. Preserved model information is not deleted merely because the model is missing locally.
 
-**After deletion:** A fresh local scan is performed so the grid is synchronized with Ollama immediately. The deleted model is therefore removed from the installed-model view.
+---
 
-**Internet:** No. The operation communicates only with the local Ollama service at `http://localhost:11434`.
-
-**Database:** The database is refreshed through the normal local scan. The model is no longer marked as installed. Existing cached online/catalog information is not treated as the authority for the installed inventory.
-
-**Logging:** The action, cancellation, success, and failure are recorded in the application log.
-
-**Important:** Deletion is irreversible from the application's perspective. To use the model again, it must be downloaded/pulled into Ollama again.
-
-## 7. Compare Selected
+## 8. Compare Selected
 
 **Purpose:** Compare multiple selected model records side by side.
 
-**Internet:** No. Comparison uses information already available in the application/database.
+**Internet:** No.
 
-**Information compared can include:**
-- Model name
-- Size
-- Parameters
-- Family
-- Quantization
-- RAM-to-run estimate
-- Categories
-- Other model metadata displayed by the application
+---
 
-**Does it update models?** No. It is a viewing/analysis function.
-
-## 8. View Log
+## 9. View Log
 
 **Purpose:** Open the application's activity log viewer.
 
 **Internet:** No.
 
-The log records application actions and operational messages such as application startup, folder selection, local scans, update/check operations, errors, and other significant actions.
+---
 
-The log window provides:
-- Refresh
-- Open in Notepad
-- Clear Current Log
+## 10. Search / Category / Size / Installed / Enriched / New on Ollama filters
 
-`Open in Notepad` launches Windows Notepad with the current log file. It does not send the log anywhere.
+These controls only change which records are displayed. They do not contact the Internet or delete model information.
 
-## 9. Search box
+The **Installed** filter can be cleared when the user wants to see both `Found` and `Missing` models.
 
-**Purpose:** Filter the displayed model list.
+---
 
-It searches model/display name, publisher, and description.
+## 11. DataGridView column headers
 
-**Internet:** No.
-
-**Model data changed:** No. Search only changes which records are displayed.
-
-## 10. Category filter
-
-**Purpose:** Show models belonging to a selected category.
-
-**Internet:** No.
-
-**Model data changed:** No. This is a display filter.
-
-## 11. Size filter
-
-**Purpose:** Filter models by local stored size ranges.
-
-**Internet:** No.
-
-**Model data changed:** No.
-
-## 12. Installed filter
-
-**Purpose:** Show only models currently marked as locally installed.
-
-**Internet:** No.
-
-The installed state originates from the local Ollama synchronization/scan.
-
-## 13. Enriched filter
-
-**Purpose:** Show models for which Ollama/public metadata enrichment has been recorded.
-
-**Internet:** No when merely filtering. The filter itself does not perform an online lookup.
-
-## 14. New on Ollama filter
-
-**Purpose:** Show models marked as new/available through the Ollama online catalog comparison.
-
-**Internet:** No when merely filtering. Use the online update/check functions to obtain current catalog information.
-
-## 15. DataGridView column headers
-
-Clicking a column header sorts the displayed rows by that column. Clicking the same header again reverses the sort direction.
-
-**Internet:** No.
-
-Sorting does not modify model files or model records.
-
-## 16. Double-click a model
-
-**Purpose:** Open the detailed model information form for the selected model.
-
-This is a viewing operation and does not start the model.
-
-The detail view can contain information such as the model name, publisher, tag, size, parameters, family, quantization, RAM-to-run estimate, description, categories, and other stored/enriched metadata depending on what is available for that model.
-
-**Internet:** Opening the details window itself does not inherently require Internet access. It displays information already stored by the application. Online information is refreshed by the explicit online update operation rather than by simply opening a model.
-
-## 17. RAM to Run column
-
-This is not the computer's currently available RAM.
-
-It is an **estimated amount of RAM required to run the individual model**.
-
-The current implementation uses the local model size plus a conservative runtime allowance. The estimate is approximately:
-
-`Estimated RAM = model size + max(15% of model size, 512 MiB)`
-
-It is a planning estimate, not an exact measurement of peak runtime consumption. Context/KV-cache settings, GPU offloading, runtime behavior, and other factors can change actual memory usage.
-
-**Internet:** No.
-
-**Physical PC RAM:** The application may display current available RAM separately for status/assessment, but that does not change the model's calculated requirement.
-
-## Recommended workflow
-
-### After downloading a new model
-
-1. Keep Ollama running.
-2. Press **Scan Local Models**.
-3. Confirm the new model appears in the grid.
-4. If you want current public descriptions/catalog information, press **Update From Ollama.com**.
-
-### For an offline/local-only session
-
-Use:
-- Select Ollama Folder
-- Scan Local Models
-- Search/filter controls
-- Compare Selected
-- View Log
-- Double-click model details
-
-These operations do not require the public Internet.
-
-### When you want current Ollama catalog information
-
-Use:
-- **Update From Ollama.com** for public metadata/catalog enrichment.
-- **Check for New** for online catalog/new-model checking.
-
-These are the functions that should be treated as Internet-dependent.
-
-## Data/database model
-
-The SQLite database is application-side storage for model records and enriched metadata. It is not the authoritative source for determining what Ollama currently has installed.
-
-The local Ollama API is the authoritative installed-model inventory, while scanning/synchronization refreshes the database records used to present the grid efficiently. Consequently, the database can contain historical/catalog records while the installed flag and current local inventory are synchronized from Ollama.
-
-Model files themselves remain under the Ollama storage directory and are not manually modified by the scanner.
+Clicking a column header sorts the displayed rows by that column. Clicking the same header again reverses the sort direction. Sorting does not modify model files or model information.
