@@ -7,16 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.7.7</Version>
-    <AssemblyVersion>0.7.7.0</AssemblyVersion>
-    <FileVersion>0.7.7.0</FileVersion>
-    <InformationalVersion>0.7.7 - Exact tagged Ollama model page snapshots, offline images, append-only history</InformationalVersion>
+    <Version>0.7.8</Version>
+    <AssemblyVersion>0.7.8.0</AssemblyVersion>
+    <FileVersion>0.7.8.0</FileVersion>
+    <InformationalVersion>0.7.8 - Fix offline snapshot regex syntax</InformationalVersion>
 
-    <!-- Embed the repository icon in the Windows executable. -->
     <ApplicationIcon>OllamaIcon.ico</ApplicationIcon>
     <Win32Icon>OllamaIcon.ico</Win32Icon>
-
-    <!-- Keep the eventual EXE independent of a pre-installed .NET runtime. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
