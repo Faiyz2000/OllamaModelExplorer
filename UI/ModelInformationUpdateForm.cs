@@ -14,7 +14,7 @@ public sealed class ModelInformationUpdateForm : Form
     private readonly ProgressBar _progressBar = new();
     private readonly Label _status = new();
     private readonly Label _current = new();
-    private readonly Button _cancel = new();
+    private readonly Button _actionButton = new();
     private CancellationTokenSource? _cts;
     private bool _completed;
     private bool _committed;
@@ -24,8 +24,12 @@ public sealed class ModelInformationUpdateForm : Form
     {
         _database = database;
         _service = service;
-        _models = models;
         _existing = existing.ToList();
+
+        // Information synchronization deliberately ignores the active grid filters.
+        // Always use the complete model inventory so Found and Missing models are both checked.
+        _models = new Database().GetAll();
+
         Text = "Model Information Update";
         Width = 720;
         Height = 250;
@@ -43,24 +47,40 @@ public sealed class ModelInformationUpdateForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        _current.Text = "Preparing...";
+
+        _current.Text = $"Preparing { _models.Count } model(s)...";
         _current.Dock = DockStyle.Fill;
         _current.AutoEllipsis = true;
         panel.Controls.Add(_current, 0, 0);
+
         _progressBar.Minimum = 0;
         _progressBar.Maximum = Math.Max(1, _models.Count);
         _progressBar.Dock = DockStyle.Fill;
         panel.Controls.Add(_progressBar, 0, 1);
+
         _status.Text = "The main project remains usable while this window is open.";
         _status.Dock = DockStyle.Fill;
         panel.Controls.Add(_status, 0, 2);
-        var note = new Label { Text = "New information is staged in memory. Existing information is not changed or replaced until this form closes.", Dock = DockStyle.Fill, AutoSize = false };
+
+        var note = new Label
+        {
+            Text = "All known models are checked, including Found and Missing models. New information is staged in memory; existing information is not replaced until this form closes.",
+            Dock = DockStyle.Fill,
+            AutoSize = false
+        };
         panel.Controls.Add(note, 0, 3);
-        _cancel.Text = "Cancel";
-        _cancel.AutoSize = true;
-        _cancel.Anchor = AnchorStyles.Right;
-        _cancel.Click += (_, _) => { if (_completed) Close(); else _cts?.Cancel(); };
-        panel.Controls.Add(_cancel, 0, 4);
+
+        _actionButton.Text = "Cancel";
+        _actionButton.AutoSize = true;
+        _actionButton.Anchor = AnchorStyles.Right;
+        _actionButton.Click += (_, _) =>
+        {
+            if (_completed)
+                Close();
+            else
+                _cts?.Cancel();
+        };
+        panel.Controls.Add(_actionButton, 0, 4);
         Controls.Add(panel);
     }
 
@@ -79,15 +99,18 @@ public sealed class ModelInformationUpdateForm : Form
             var result = await _service.FetchAsync(_models, _existing, progress, _cts.Token);
             _staged.AddRange(result.Updates);
             _completed = true;
-            _cancel.Text = "Close";
-            _status.Text = $"Update scan finished: {_staged.Count} new information snapshot(s), {result.Unchanged} unchanged, {result.Failed} unavailable.";
+            _progressBar.Value = _progressBar.Maximum;
+            _actionButton.Text = "Close";
+            _actionButton.Enabled = true;
+            _status.Text = $"Update scan finished: {_staged.Count} new information snapshot(s), {result.Unchanged} unchanged, {result.Failed} unavailable. Close this form to commit the staged updates.";
         }
         catch (OperationCanceledException)
         {
             _status.Text = "Update cancelled. Existing information will be preserved.";
             _completed = true;
             _staged.Clear();
-            _cancel.Text = "Close";
+            _actionButton.Text = "Close";
+            _actionButton.Enabled = true;
         }
         catch (Exception ex)
         {
@@ -95,13 +118,21 @@ public sealed class ModelInformationUpdateForm : Form
             MessageBox.Show(this, ex.Message, "Model information update", MessageBoxButtons.OK, MessageBoxIcon.Error);
             _completed = true;
             _staged.Clear();
-            _cancel.Text = "Close";
+            _actionButton.Text = "Close";
+            _actionButton.Enabled = true;
+        }
+        finally
+        {
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 
     private void UpdateProgress(ModelInformationUpdateProgress p)
     {
-        _current.Text = p.Total > 0 && p.Completed < p.Total ? $"Model: {p.ModelName} ({p.Completed + 1}/{p.Total})" : p.ModelName;
+        _current.Text = p.Total > 0 && p.Completed < p.Total
+            ? $"Model: {p.ModelName} ({Math.Min(p.Completed + 1, p.Total)}/{p.Total})"
+            : p.ModelName;
         _progressBar.Value = Math.Min(_progressBar.Maximum, Math.Max(0, p.Completed));
         _status.Text = p.Status;
     }
@@ -112,9 +143,12 @@ public sealed class ModelInformationUpdateForm : Form
         {
             e.Cancel = true;
             _cts?.Cancel();
+            _status.Text = "Cancellation requested. Finishing the current request...";
             return;
         }
+
         if (_committed || _staged.Count == 0) return;
+
         try
         {
             _database.AppendUpdates(_staged);
@@ -123,7 +157,8 @@ public sealed class ModelInformationUpdateForm : Form
         catch (Exception ex)
         {
             e.Cancel = true;
-            MessageBox.Show(this, "The update could not be committed, so the existing information was preserved." + Environment.NewLine + Environment.NewLine + ex.Message,
+            MessageBox.Show(this,
+                "The update could not be committed, so the existing information was preserved." + Environment.NewLine + Environment.NewLine + ex.Message,
                 "Model information update", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
