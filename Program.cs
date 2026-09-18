@@ -10,6 +10,7 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         var form = new MainFormOnline();
+        NetworkAccessPolicyFeature.Attach(form);
         DeleteModelFeature.Attach(form);
         RamColumnFeature.Attach(form);
         Application.Run(form);
