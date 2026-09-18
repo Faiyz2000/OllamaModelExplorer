@@ -69,20 +69,15 @@ public sealed class OllamaOnlineCatalogService
         return new CheckResult(catalog.Count, newModels, now);
     }
 
-    /// <summary>
-    /// Fetches the exact Ollama library page for the selected model/tag. The returned
-    /// HTML is made self-contained by embedding referenced stylesheets and images, so
-    /// the Model Information form can display the captured page without Internet access.
-    /// This method is only called by the explicit information-update operation.
-    /// </summary>
     public async Task<ModelInformation?> FetchModelInformationAsync(ModelInfo model, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(model.Name)) return null;
         var publisher = string.IsNullOrWhiteSpace(model.Publisher) ? "library" : model.Publisher;
         var tag = string.IsNullOrWhiteSpace(model.Tag) ? "latest" : model.Tag;
+        var modelId = string.IsNullOrWhiteSpace(model.Tag) ? model.Name : $"{model.Name}:{model.Tag}";
         var path = publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
-            ? $"library/{Uri.EscapeDataString(model.Name + ":" + tag)}"
-            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(model.Name + ":" + tag)}";
+            ? $"library/{Uri.EscapeDataString(modelId)}"
+            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(modelId)}";
         var url = $"https://ollama.com/{path}";
         try
         {
@@ -167,10 +162,10 @@ public sealed class OllamaOnlineCatalogService
     private async Task<string> CreateOfflineSnapshotAsync(string html, Uri baseUri, CancellationToken cancellationToken)
     {
         var snapshot = html;
-        snapshot = Regex.Replace(snapshot, "<script\\b[^>]*>.*?</script>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        snapshot = Regex.Replace(snapshot, "<noscript\\b[^>]*>.*?</noscript>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, @"<script\b[^>]*>.*?</script>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, @"<noscript\b[^>]*>.*?</noscript>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-        var stylesheetPattern = "<link\\b(?=[^>]*\\brel=[\\\"'][^\\\"']*stylesheet[^\\\"']*[\\\"'])[^>]*\\bhref=[\\\"'](?<url>[^\\\"']+)[\\\"'][^>]*>");
+        const string stylesheetPattern = @"<link\b(?=[^>]*\brel=['\"][^'\"]*stylesheet[^'\"]*['\"])[^>]*\bhref=['\"](?<url>[^'\"]+)['\"][^>]*>";
         foreach (Match match in Regex.Matches(snapshot, stylesheetPattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
         {
             var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
@@ -178,13 +173,12 @@ public sealed class OllamaOnlineCatalogService
             try
             {
                 var css = await _http.GetStringAsync(resourceUrl, cancellationToken);
-                var data = Convert.ToBase64String(Encoding.UTF8.GetBytes(css));
                 snapshot = snapshot.Replace(match.Value, $"<style data-offline-source=\"{WebUtility.HtmlEncode(resourceUrl.ToString())}\">{css}</style>", StringComparison.Ordinal);
             }
             catch { }
         }
 
-        var imagePattern = "<img\\b(?<before>[^>]*?)\\bsrc=[\\\"'](?<url>[^\\\"']+)[\\\"'](?<after>[^>]*)>");
+        const string imagePattern = @"<img\b(?<before>[^>]*?)\bsrc=['\"](?<url>[^'\"]+)['\"](?<after>[^>]*)>";
         foreach (Match match in Regex.Matches(snapshot, imagePattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
         {
             var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
@@ -200,9 +194,8 @@ public sealed class OllamaOnlineCatalogService
             catch { }
         }
 
-        // Keep the captured page content, but prevent accidental external resource access while offline.
-        snapshot = Regex.Replace(snapshot, "<iframe\\b[^>]*>.*?</iframe>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        snapshot = Regex.Replace(snapshot, "<base\\b[^>]*>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, @"<iframe\b[^>]*>.*?</iframe>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, @"<base\b[^>]*>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         return snapshot;
     }
 
@@ -227,7 +220,7 @@ public sealed class OllamaOnlineCatalogService
 
     private static string ExtractMainContent(string html)
     {
-        var main = Regex.Match(html, "<main\\b[^>]*>(?<content>.*?)</main>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        var main = Regex.Match(html, @"<main\b[^>]*>(?<content>.*?)</main>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         return main.Success ? main.Groups["content"].Value : html;
     }
 
@@ -240,7 +233,7 @@ public sealed class OllamaOnlineCatalogService
 
     private static string ExtractDescription(string body, string name)
     {
-        var text = Regex.Replace(WebUtility.HtmlDecode(body), "\\s+", " ").Trim();
+        var text = Regex.Replace(WebUtility.HtmlDecode(body), @"\s+", " ").Trim();
         var pos = text.IndexOf(name, StringComparison.OrdinalIgnoreCase);
         if (pos >= 0) text = text[(pos + name.Length)..].Trim();
         return text.Length > 600 ? text[..600].Trim() : text;
@@ -254,6 +247,6 @@ public sealed class OllamaOnlineCatalogService
         return string.Join("|", found);
     }
 
-    private static string CleanHtml(string value) => Regex.Replace(WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")), "\\s+", " ").Trim();
+    private static string CleanHtml(string value) => Regex.Replace(WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")), @"\s+", " ").Trim();
     private static string Key(OnlineModel x) => $"{x.Publisher}/{x.Name}";
 }
