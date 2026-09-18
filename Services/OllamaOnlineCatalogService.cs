@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OllamaModelExplorer.Models;
@@ -68,33 +69,43 @@ public sealed class OllamaOnlineCatalogService
         return new CheckResult(catalog.Count, newModels, now);
     }
 
+    /// <summary>
+    /// Fetches the exact Ollama library page for the selected model/tag. The returned
+    /// HTML is made self-contained by embedding referenced stylesheets and images, so
+    /// the Model Information form can display the captured page without Internet access.
+    /// This method is only called by the explicit information-update operation.
+    /// </summary>
     public async Task<ModelInformation?> FetchModelInformationAsync(ModelInfo model, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(model.Name)) return null;
         var publisher = string.IsNullOrWhiteSpace(model.Publisher) ? "library" : model.Publisher;
+        var tag = string.IsNullOrWhiteSpace(model.Tag) ? "latest" : model.Tag;
         var path = publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
-            ? $"library/{Uri.EscapeDataString(model.Name)}"
-            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(model.Name)}";
+            ? $"library/{Uri.EscapeDataString(model.Name + ":" + tag)}"
+            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(model.Name + ":" + tag)}";
         var url = $"https://ollama.com/{path}";
         try
         {
             using var response = await _http.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode) return null;
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(html)) return null;
+
+            var offlineHtml = await CreateOfflineSnapshotAsync(html, new Uri(url), cancellationToken);
             var description = ExtractMeta(html, "description") ?? ExtractMeta(html, "og:description") ?? "";
-            var capabilities = ExtractCapabilities(CleanHtml(html));
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(description)) parts.Add("Description:\r\n" + WebUtility.HtmlDecode(description).Trim());
-            if (!string.IsNullOrWhiteSpace(capabilities)) parts.Add("Capabilities:\r\n" + capabilities.Replace("|", ", "));
-            parts.Add("Source URL:\r\n" + url);
-            var text = string.Join("\r\n\r\n", parts);
-            if (string.IsNullOrWhiteSpace(description) && string.IsNullOrWhiteSpace(capabilities)) return null;
+            var pageText = CleanHtml(ExtractMainContent(html));
+            if (string.IsNullOrWhiteSpace(pageText) && string.IsNullOrWhiteSpace(description)) return null;
+
+            var text = string.IsNullOrWhiteSpace(pageText)
+                ? WebUtility.HtmlDecode(description).Trim()
+                : pageText;
             return new ModelInformation
             {
                 Publisher = publisher,
                 Name = model.Name,
-                Tag = string.IsNullOrWhiteSpace(model.Tag) ? "latest" : model.Tag,
+                Tag = tag,
                 InformationText = text,
+                OfflineHtml = offlineHtml,
                 SourceUrl = url,
                 AddedUtc = DateTime.UtcNow,
                 Status = "Update"
@@ -137,9 +148,10 @@ public sealed class OllamaOnlineCatalogService
     private async Task<OnlineModel?> FetchModelPageAsync(string publisher, string name, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(name)) return null;
-        var path = string.IsNullOrWhiteSpace(publisher) || publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
+        var normalizedPublisher = string.IsNullOrWhiteSpace(publisher) ? "library" : publisher;
+        var path = normalizedPublisher.Equals("library", StringComparison.OrdinalIgnoreCase)
             ? $"library/{Uri.EscapeDataString(name)}"
-            : $"{Uri.EscapeDataString(publisher)}/{Uri.EscapeDataString(name)}";
+            : $"{Uri.EscapeDataString(normalizedPublisher)}/{Uri.EscapeDataString(name)}";
         var url = $"https://ollama.com/{path}";
         try
         {
@@ -147,10 +159,76 @@ public sealed class OllamaOnlineCatalogService
             if (!response.IsSuccessStatusCode) return null;
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
             var description = ExtractMeta(html, "description") ?? ExtractMeta(html, "og:description") ?? "";
-            return new OnlineModel(string.IsNullOrWhiteSpace(publisher) ? "library" : publisher, name,
-                WebUtility.HtmlDecode(description).Trim(), ExtractCapabilities(CleanHtml(html)), url, DateTime.UtcNow);
+            return new OnlineModel(normalizedPublisher, name, WebUtility.HtmlDecode(description).Trim(), ExtractCapabilities(CleanHtml(html)), url, DateTime.UtcNow);
         }
         catch { return null; }
+    }
+
+    private async Task<string> CreateOfflineSnapshotAsync(string html, Uri baseUri, CancellationToken cancellationToken)
+    {
+        var snapshot = html;
+        snapshot = Regex.Replace(snapshot, "<script\\b[^>]*>.*?</script>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, "<noscript\\b[^>]*>.*?</noscript>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        var stylesheetPattern = "<link\\b(?=[^>]*\\brel=[\\\"'][^\\\"']*stylesheet[^\\\"']*[\\\"'])[^>]*\\bhref=[\\\"'](?<url>[^\\\"']+)[\\\"'][^>]*>");
+        foreach (Match match in Regex.Matches(snapshot, stylesheetPattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
+        {
+            var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
+            if (resourceUrl is null) continue;
+            try
+            {
+                var css = await _http.GetStringAsync(resourceUrl, cancellationToken);
+                var data = Convert.ToBase64String(Encoding.UTF8.GetBytes(css));
+                snapshot = snapshot.Replace(match.Value, $"<style data-offline-source=\"{WebUtility.HtmlEncode(resourceUrl.ToString())}\">{css}</style>", StringComparison.Ordinal);
+            }
+            catch { }
+        }
+
+        var imagePattern = "<img\\b(?<before>[^>]*?)\\bsrc=[\\\"'](?<url>[^\\\"']+)[\\\"'](?<after>[^>]*)>");
+        foreach (Match match in Regex.Matches(snapshot, imagePattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
+        {
+            var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
+            if (resourceUrl is null) continue;
+            try
+            {
+                var bytes = await _http.GetByteArrayAsync(resourceUrl, cancellationToken);
+                var mediaType = GuessMediaType(resourceUrl.AbsolutePath);
+                var dataUri = $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}";
+                var replacement = $"<img{match.Groups["before"].Value}src=\"{dataUri}\"{match.Groups["after"].Value}>";
+                snapshot = snapshot.Replace(match.Value, replacement, StringComparison.Ordinal);
+            }
+            catch { }
+        }
+
+        // Keep the captured page content, but prevent accidental external resource access while offline.
+        snapshot = Regex.Replace(snapshot, "<iframe\\b[^>]*>.*?</iframe>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        snapshot = Regex.Replace(snapshot, "<base\\b[^>]*>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        return snapshot;
+    }
+
+    private static Uri? ResolveUrl(Uri baseUri, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return null;
+        return Uri.TryCreate(baseUri, value, out var uri) ? uri : null;
+    }
+
+    private static string GuessMediaType(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".svg" => "image/svg+xml",
+            ".bmp" => "image/bmp",
+            _ => "application/octet-stream"
+        };
+
+    private static string ExtractMainContent(string html)
+    {
+        var main = Regex.Match(html, "<main\\b[^>]*>(?<content>.*?)</main>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        return main.Success ? main.Groups["content"].Value : html;
     }
 
     private static string? ExtractMeta(string html, string name)
