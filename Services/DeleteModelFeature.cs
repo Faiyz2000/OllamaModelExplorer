@@ -5,8 +5,9 @@ using OllamaModelExplorer.Models;
 namespace OllamaModelExplorer.Services;
 
 /// <summary>
-/// Adds the Delete Model action to the existing main form. Installed models are
-/// removed through Ollama; missing models are removed from the local model catalog.
+/// Adds the Delete Model action to the existing main form. Supports one or more
+/// selected rows. Installed models are removed through Ollama; missing models are
+/// removed from the local model catalog.
 /// </summary>
 public static class DeleteModelFeature
 {
@@ -35,24 +36,45 @@ public static class DeleteModelFeature
 
     private static void UpdateEnabled(Button button, DataGridView grid)
     {
-        button.Enabled = grid.SelectedRows.Count == 1 && TryGetModel(grid.SelectedRows[0], out _);
+        button.Enabled = GetSelectedModels(grid).Count > 0;
+    }
+
+    private static List<ModelInfo> GetSelectedModels(DataGridView grid)
+    {
+        return grid.SelectedRows
+            .Cast<DataGridViewRow>()
+            .Select(row => TryGetModel(row, out var model) ? model : null)
+            .Where(model => model is not null)
+            .Select(model => model!)
+            .GroupBy(model => GetIdentity(model), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private static async Task DeleteSelectedAsync(Form form, DataGridView grid, Button button)
     {
-        if (grid.SelectedRows.Count != 1 || !TryGetModel(grid.SelectedRows[0], out var model))
-            return;
+        var models = GetSelectedModels(grid);
+        if (models.Count == 0) return;
 
-        var action = model.Installed
-            ? "Permanently delete the selected installed Ollama model?"
-            : "Delete the selected missing model from the local model catalog?";
-        var consequence = model.Installed
-            ? "This removes the installed model from Ollama. To use it again, it must be downloaded/pulled again."
-            : "The model is not installed on this PC. Its local catalog record, including its associated model information, will be removed from this project.";
+        var installed = models.Where(m => m.Installed).ToList();
+        var missing = models.Where(m => !m.Installed).ToList();
+
+        var actionSummary = new List<string>();
+        if (installed.Count > 0)
+            actionSummary.Add($"Installed models to delete from Ollama: {installed.Count}");
+        if (missing.Count > 0)
+            actionSummary.Add($"Missing models to remove from the local catalog: {missing.Count}");
+
+        var names = string.Join(Environment.NewLine, models.Select(m => $"• {m.DisplayName}"));
+        var consequence = "\r\n\r\nThis action cannot be undone from OllamaModelExplorer.";
+        if (missing.Count > 0)
+            consequence += "\r\nPreserved model-information history is not deleted by removing a missing model from the local catalog.";
 
         var answer = MessageBox.Show(
             form,
-            $"{action}\r\n\r\n{model.DisplayName}\r\n\r\n{consequence}\r\n\r\nThis action cannot be undone from OllamaModelExplorer.",
+            $"Delete the {models.Count} selected model(s)?\r\n\r\n" +
+            string.Join("\r\n", actionSummary) +
+            $"\r\n\r\n{names}{consequence}",
             "Confirm model deletion",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
@@ -60,50 +82,81 @@ public static class DeleteModelFeature
 
         if (answer != DialogResult.Yes)
         {
-            AppLogger.Action($"Model deletion cancelled: {model.DisplayName}");
+            AppLogger.Action($"Model deletion cancelled for {models.Count} selected model(s).");
             return;
         }
 
         try
         {
             button.Enabled = false;
-            var exactName = GetExactName(model);
+            var deletedCount = 0;
+            var failed = new List<string>();
 
-            if (model.Installed)
+            // Process sequentially so the local Ollama service is not flooded by
+            // simultaneous delete requests when many models are selected.
+            foreach (var model in models)
             {
-                AppLogger.Action($"Deleting installed Ollama model: {exactName}");
-                await new OllamaScanner().DeleteModelAsync(model);
-                AppLogger.Info($"Installed model deleted successfully: {exactName}");
-            }
-            else
-            {
-                AppLogger.Action($"Deleting missing model catalog record: {exactName}");
-                var deleted = new Database().DeleteModelRecord(model);
-                if (!deleted)
-                    throw new InvalidOperationException("The missing model record could not be found in the local catalog.");
-                AppLogger.Info($"Missing model catalog record deleted successfully: {exactName}");
+                var exactName = GetExactName(model);
+                try
+                {
+                    if (model.Installed)
+                    {
+                        AppLogger.Action($"Deleting installed Ollama model: {exactName}");
+                        await new OllamaScanner().DeleteModelAsync(model);
+                        AppLogger.Info($"Installed model deleted successfully: {exactName}");
+                    }
+                    else
+                    {
+                        AppLogger.Action($"Deleting missing model catalog record: {exactName}");
+                        var deleted = new Database().DeleteModelRecord(model);
+                        if (!deleted)
+                            throw new InvalidOperationException("The missing model record could not be found in the local catalog.");
+                        AppLogger.Info($"Missing model catalog record deleted successfully: {exactName}");
+                    }
+
+                    deletedCount++;
+                }
+                catch (Exception ex)
+                {
+                    failed.Add($"{model.DisplayName}: {ex.Message}");
+                    AppLogger.Error($"Unable to delete model: {exactName}", ex);
+                }
             }
 
             var scan = form.GetType().GetMethod("ScanLocalAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (scan is not null)
+            if (scan is not null && deletedCount > 0)
             {
                 var task = scan.Invoke(form, null) as Task;
                 if (task is not null) await task;
             }
 
-            MessageBox.Show(
-                form,
-                model.Installed
-                    ? $"The installed model was deleted successfully.\r\n\r\n{model.DisplayName}"
-                    : $"The missing model was removed from the local catalog successfully.\r\n\r\n{model.DisplayName}",
-                "Model deleted",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            if (failed.Count == 0)
+            {
+                MessageBox.Show(
+                    form,
+                    $"{deletedCount} selected model(s) were deleted successfully.",
+                    "Models deleted",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                var failureText = string.Join(Environment.NewLine, failed.Take(10));
+                if (failed.Count > 10)
+                    failureText += Environment.NewLine + $"...and {failed.Count - 10} more failure(s).";
+
+                MessageBox.Show(
+                    form,
+                    $"Completed deletion for {deletedCount} of {models.Count} selected model(s).\r\n\r\nFailed:\r\n{failureText}",
+                    "Deletion completed with errors",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
         }
         catch (Exception ex)
         {
-            AppLogger.Error($"Unable to delete model: {model.DisplayName}", ex);
-            MessageBox.Show(form, "The model could not be deleted.\r\n\r\n" + ex.Message, "Delete error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            AppLogger.Error("Unable to complete multi-model deletion.", ex);
+            MessageBox.Show(form, "The selected models could not be deleted.\r\n\r\n" + ex.Message, "Delete error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -125,6 +178,9 @@ public static class DeleteModelFeature
         }
         return false;
     }
+
+    private static string GetIdentity(ModelInfo model) =>
+        $"{model.Publisher}/{model.Name}:{model.Tag}";
 
     private static string GetExactName(ModelInfo model) =>
         model.Publisher.Equals("library", StringComparison.OrdinalIgnoreCase)
