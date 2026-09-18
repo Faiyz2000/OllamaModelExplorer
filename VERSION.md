@@ -1,14 +1,25 @@
 # Ollama Model Explorer Version
 
-## Version 0.7.5
+## Version 0.7.7
 
 Date: 2026-09-19
 
-### Project-wide online access policy
+### Exact Ollama model information snapshots
+
+- The Model Information Update operation now fetches the **specific Ollama model page for the selected model and tag**, for example `nemotron-3.5-lightning:30b` uses the corresponding tagged model page rather than a generic catalog description.
+- The captured page is preserved as an offline HTML snapshot in the separate model-information SQLite database.
+- Referenced page images, including benchmark images when present, are downloaded during the explicit update operation and embedded into the offline snapshot so they remain available without Internet access.
+- Previous snapshots are never overwritten. A changed page creates another historical snapshot, separated in the Model Information form by the capture date.
+- Blank, missing, failed, or deleted Ollama.com pages cannot erase previously preserved information.
+- The Model Information form displays the preserved page snapshot offline and retains the existing font-size controls.
+- Backup and Restore include the complete offline page snapshots because they are stored inside the SQLite database.
+- The existing **double-click a model row** workflow is unchanged.
+
+### Version 0.7.5 online-access policy retained
 
 - The explicit **Update Model Information** action is the only user action permitted to access the Internet / Ollama.com.
 - Local communication with the Ollama service remains permitted for normal local model operations, including scanning installed models and deleting installed models.
-- The previous **Check for New** action contacted Ollama.com independently. It is now disabled so it cannot perform an online request outside the approved information-update workflow.
+- The previous **Check for New** action is disabled so it cannot perform an online request outside the approved information-update workflow.
 - Local model information, filtering, sorting, comparison, database backup/restore, and other local operations do not access the Internet.
 
 ### Version 0.7.4 features retained
