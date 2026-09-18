@@ -23,31 +23,34 @@ public sealed class ModelInformationUpdateService
             await gate.WaitAsync(cancellationToken);
             try
             {
-                var index = Interlocked.Increment(ref completed) - 1;
-                progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, index, models.Count, "Fetching information..."));
                 var online = await _online.FetchModelInformationAsync(model, cancellationToken);
-                if (online is null || string.IsNullOrWhiteSpace(online.InformationText))
+                var done = Interlocked.Increment(ref completed);
+                progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, done - 1, models.Count, "Fetching exact Ollama model page..."));
+                if (online is null || (string.IsNullOrWhiteSpace(online.InformationText) && string.IsNullOrWhiteSpace(online.OfflineHtml)))
                 {
                     Interlocked.Increment(ref failed);
-                    progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, completed, models.Count, "No usable information returned; existing history preserved."));
+                    progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, done, models.Count, "No usable page returned; existing history preserved."));
                     return;
                 }
-                var hash = ModelInformationDatabase.ComputeHash(online.InformationText);
+
+                var comparisonSource = string.IsNullOrWhiteSpace(online.OfflineHtml) ? online.InformationText : online.OfflineHtml;
+                var hash = ModelInformationDatabase.ComputeHash(comparisonSource);
                 var key = $"{Key(model.Publisher, model.Name, model.Tag)}|{hash}";
                 if (existingHashes.Contains(key))
                 {
                     Interlocked.Increment(ref skipped);
-                    progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, completed, models.Count, "No new information; existing history preserved."));
+                    progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, done, models.Count, "No new page information; existing history preserved."));
                     return;
                 }
+
                 lock (results) results.Add(online with { ContentHash = hash, AddedUtc = DateTime.UtcNow, Status = "Update" });
-                progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, completed, models.Count, "New information staged; database unchanged."));
+                progress?.Report(new ModelInformationUpdateProgress(model.DisplayName, done, models.Count, "New page snapshot staged; database unchanged."));
             }
             finally { gate.Release(); }
         });
         await Task.WhenAll(tasks);
         progress?.Report(new ModelInformationUpdateProgress("Complete", models.Count, models.Count,
-            $"Finished. {results.Count} new update(s), {skipped} unchanged, {failed} unavailable."));
+            $"Finished. {results.Count} new snapshot(s), {skipped} unchanged, {failed} unavailable."));
         return new UpdateBatchResult(results, skipped, failed);
     }
 
