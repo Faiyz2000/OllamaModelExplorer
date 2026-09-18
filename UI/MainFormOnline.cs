@@ -212,34 +212,42 @@ public sealed class MainFormOnline : Form
 
     private void StartModelInformationUpdate()
     {
-        var displayedModels = _grid.Rows.Cast<DataGridViewRow>()
-            .Select(row => row.DataBoundItem as ModelRow)
-            .Where(row => row is not null)
-            .Select(row => row!.Model)
+        // Synchronization intentionally ignores every grid filter. The complete model
+        // inventory is synchronized, including models currently marked Found and Missing.
+        var modelsToUpdate = _allModels
             .DistinctBy(model => model.Id)
             .ToList();
-        if (displayedModels.Count == 0)
+
+        if (modelsToUpdate.Count == 0)
         {
-            MessageBox.Show(this, "There are no models currently displayed in the grid to update.", "Model information update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "There are no models in the model inventory to update.",
+                "Model information update", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
+
         if (_informationUpdateForm is not null && !_informationUpdateForm.IsDisposed)
         {
             _informationUpdateForm.Activate();
             return;
         }
+
         var answer = MessageBox.Show(this,
-            "This operation will contact Ollama.com for the models currently displayed in the grid. Existing information is preserved and new information is appended only. Continue?",
+            $"This operation will contact Ollama.com for all {modelsToUpdate.Count} models in the model inventory, including Found and Missing models. " +
+            "Grid filters are ignored. Existing information is preserved and new information is appended only. Continue?",
             "Online model information update", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (answer != DialogResult.Yes) return;
+
         _informationDb.SeedFromModels(_allModels);
         _modelInformation = _informationDb.LoadAll();
-        _informationUpdateForm = new ModelInformationUpdateForm(_informationDb, _informationUpdater, displayedModels, _modelInformation);
+        _informationUpdateForm = new ModelInformationUpdateForm(
+            _informationDb, _informationUpdater, modelsToUpdate, _modelInformation);
+
         _informationUpdateForm.FormClosed += (_, _) =>
         {
             _modelInformation = _informationDb.LoadAll();
             _informationUpdateForm = null;
         };
+
         _informationUpdateForm.Show(this);
     }
 
@@ -335,14 +343,24 @@ public sealed class MainFormOnline : Form
     private void Grid_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
     {
         if (e.ColumnIndex < 0) return;
-        if (_sortColumn == e.ColumnIndex) _sortDirection = _sortDirection == ListSortDirection.Ascending ? ListSortDirection.Descending : ListSortDirection.Ascending;
-        else { _sortColumn = e.ColumnIndex; _sortDirection = ListSortDirection.Ascending; }
+        if (_sortColumn == e.ColumnIndex)
+            _sortDirection = _sortDirection == ListSortDirection.Ascending
+                ? ListSortDirection.Descending
+                : ListSortDirection.Ascending;
+        else
+        {
+            _sortColumn = e.ColumnIndex;
+            _sortDirection = ListSortDirection.Ascending;
+        }
         ApplyFilters();
     }
 
     private void SortRows(List<ModelRow> rows)
     {
-        var property = _sortColumn >= 0 && _sortColumn < _grid.Columns.Count ? _grid.Columns[_sortColumn].DataPropertyName : "";
+        var property = _sortColumn >= 0 && _sortColumn < _grid.Columns.Count
+            ? _grid.Columns[_sortColumn].DataPropertyName
+            : "";
+
         Comparison<ModelRow>? c = property switch
         {
             "RowNumber" => (a, b) => a.RowNumber.CompareTo(b.RowNumber),
@@ -358,6 +376,7 @@ public sealed class MainFormOnline : Form
             "MetadataDisplay" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.MetadataDisplay, b.MetadataDisplay),
             _ => null
         };
+
         if (c is null) return;
         rows.Sort(_sortDirection == ListSortDirection.Ascending ? c : (a, b) => c(b, a));
     }
@@ -383,7 +402,7 @@ public sealed class MainFormOnline : Form
 
     private void ShowDetails(ModelInfo m)
     {
-        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nStatus: {m.InstallationStatus}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
+        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
         using var f = new Form { Text = m.DisplayName, Width = 850, Height = 600, StartPosition = FormStartPosition.CenterParent };
         f.Controls.Add(new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Text = text, Font = new Font("Consolas", 10) });
         f.ShowDialog(this);
