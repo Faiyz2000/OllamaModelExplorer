@@ -1,16 +1,27 @@
 # Ollama Model Explorer Version
 
-## Version 0.7.3
+## Version 0.7.4
 
 Date: 2026-09-19
 
-### Delete Model correction
+### Multi-model deletion
 
-- **Delete Model** is now enabled for any selected model, whether its status is **Found** or **Missing**.
-- For a **Found/installed** model, Delete Model continues to remove the actual model through the local Ollama service.
-- For a **Missing** model, Delete Model removes the model's local catalog record from the model inventory database without attempting to contact the Ollama service.
-- The confirmation message clearly distinguishes deletion of an installed model from removal of a missing catalog record.
-- Existing model-information history remains independent of this operation; deleting a missing model from the local inventory does not automatically erase its preserved model-information history.
+- **Delete Model** now supports multiple selected rows because the main DataGridView already allows multi-selection.
+- The button is enabled whenever one or more valid model rows are selected.
+- Installed/Found models are deleted sequentially through the local Ollama service.
+- Missing models are removed sequentially from the local model catalog without contacting the Ollama service.
+- Mixed selections containing both Found and Missing models are supported.
+- A single confirmation dialog summarizes the number and type of selected models before deletion.
+- Deletion is processed sequentially to avoid flooding the local Ollama service when many models are selected.
+- Partial failures are reported without hiding successful deletions.
+- The main model scan is refreshed once after the batch operation.
+- Preserved model-information history remains independent from removal of missing model catalog records.
+
+### Version 0.7.3 features retained
+
+- **Delete Model** is enabled for any selected model, whether its status is **Found** or **Missing**.
+- For a **Found/installed** model, Delete Model removes the actual model through the local Ollama service.
+- For a **Missing** model, Delete Model removes the model's local catalog record without contacting the Ollama service.
 
 ### Version 0.7.2 features retained
 
