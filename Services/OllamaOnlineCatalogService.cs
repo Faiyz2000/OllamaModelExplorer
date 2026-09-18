@@ -165,7 +165,7 @@ public sealed class OllamaOnlineCatalogService
         snapshot = Regex.Replace(snapshot, @"<script\b[^>]*>.*?</script>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         snapshot = Regex.Replace(snapshot, @"<noscript\b[^>]*>.*?</noscript>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-        const string stylesheetPattern = @"<link\b(?=[^>]*\brel=['\"][^'\"]*stylesheet[^'\"]*['\"])[^>]*\bhref=['\"](?<url>[^'\"]+)['\"][^>]*>";
+        const string stylesheetPattern = @"<link\b(?=[^>]*\brel=['""][^'""]*stylesheet[^'""]*['""])[^>]*\bhref=['""](?<url>[^'""]+)['""][^>]*>";
         foreach (Match match in Regex.Matches(snapshot, stylesheetPattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
         {
             var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
@@ -178,7 +178,7 @@ public sealed class OllamaOnlineCatalogService
             catch { }
         }
 
-        const string imagePattern = @"<img\b(?<before>[^>]*?)\bsrc=['\"](?<url>[^'\"]+)['\"](?<after>[^>]*)>";
+        const string imagePattern = @"<img\b(?<before>[^>]*?)\bsrc=['""](?<url>[^'""]+)['""](?<after>[^>]*)>";
         foreach (Match match in Regex.Matches(snapshot, imagePattern, RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList())
         {
             var resourceUrl = ResolveUrl(baseUri, WebUtility.HtmlDecode(match.Groups["url"].Value));
