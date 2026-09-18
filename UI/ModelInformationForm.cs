@@ -11,7 +11,9 @@ public sealed class ModelInformationForm : Form
     private readonly List<ModelInformation> _history;
     private readonly TextBox _text = new();
     private readonly Label _status = new();
+    private readonly Label _fontSizeLabel = new();
     private readonly ComboBox _modelSelector = new();
+    private float _fontSize = 10f;
 
     public ModelInformationForm(ModelInformationDatabase database, IReadOnlyList<ModelInfo> models, IReadOnlyList<ModelInformation> history)
     {
@@ -29,29 +31,75 @@ public sealed class ModelInformationForm : Form
 
     private void BuildUi()
     {
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(12, 8, 12, 6), WrapContents = false };
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 52,
+            Padding = new Padding(12, 8, 12, 6),
+            WrapContents = false,
+            AutoScroll = true
+        };
+
         _modelSelector.Width = 300;
         _modelSelector.DropDownStyle = ComboBoxStyle.DropDownList;
         _modelSelector.SelectedIndexChanged += (_, _) => DisplaySelected();
+
         var backup = new Button { Text = "Backup DB", AutoSize = true };
         backup.Click += (_, _) => BackupDatabase();
+
         var restore = new Button { Text = "Restore DB", AutoSize = true };
         restore.Click += (_, _) => RestoreDatabase();
+
         var refresh = new Button { Text = "Refresh", AutoSize = true };
         refresh.Click += (_, _) => ReloadHistory();
-        toolbar.Controls.AddRange(new Control[] { _modelSelector, backup, restore, refresh });
+
+        var decreaseFont = new Button { Text = "A−", Width = 42, AccessibleName = "Decrease information font size" };
+        decreaseFont.Click += (_, _) => ChangeFontSize(-1);
+
+        var increaseFont = new Button { Text = "A+", Width = 42, AccessibleName = "Increase information font size" };
+        increaseFont.Click += (_, _) => ChangeFontSize(1);
+
+        var resetFont = new Button { Text = "Reset Font", AutoSize = true };
+        resetFont.Click += (_, _) => SetFontSize(10);
+
+        _fontSizeLabel.Text = "Font: 10 pt";
+        _fontSizeLabel.AutoSize = true;
+        _fontSizeLabel.Padding = new Padding(4, 7, 4, 0);
+
+        toolbar.Controls.AddRange(new Control[]
+        {
+            _modelSelector, backup, restore, refresh,
+            decreaseFont, increaseFont, resetFont, _fontSizeLabel
+        });
+
         _status.Dock = DockStyle.Bottom;
         _status.Height = 28;
         _status.Padding = new Padding(12, 5, 12, 0);
+
         _text.Dock = DockStyle.Fill;
         _text.Multiline = true;
         _text.ReadOnly = true;
         _text.ScrollBars = ScrollBars.Both;
-        _text.Font = new Font("Consolas", 10);
+        _text.Font = new Font("Consolas", _fontSize, FontStyle.Regular);
         _text.BackColor = SystemColors.Window;
+
         Controls.Add(_text);
         Controls.Add(_status);
         Controls.Add(toolbar);
+    }
+
+    private void ChangeFontSize(int delta)
+    {
+        SetFontSize(_fontSize + delta);
+    }
+
+    private void SetFontSize(float size)
+    {
+        _fontSize = Math.Clamp(size, 8f, 24f);
+        var oldFont = _text.Font;
+        _text.Font = new Font(oldFont.FontFamily, _fontSize, oldFont.Style);
+        oldFont.Dispose();
+        _fontSizeLabel.Text = $"Font: {_fontSize:0} pt";
     }
 
     private void PopulateModels()
@@ -85,6 +133,7 @@ public sealed class ModelInformationForm : Form
             string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(h.Tag, tag, StringComparison.OrdinalIgnoreCase))
             .OrderBy(h => h.AddedUtc).ToList();
+
         var builder = new StringBuilder();
         builder.AppendLine($"Model: {name}:{tag}");
         builder.AppendLine($"Publisher: {publisher}");
