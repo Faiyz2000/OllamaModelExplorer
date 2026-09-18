@@ -45,6 +45,7 @@ public sealed class ModelInformationDatabase
                 Name TEXT NOT NULL,
                 Tag TEXT NOT NULL DEFAULT 'latest',
                 InformationText TEXT NOT NULL,
+                OfflineHtml TEXT NOT NULL DEFAULT '',
                 AddedUtc TEXT NOT NULL,
                 SourceUrl TEXT NOT NULL DEFAULT '',
                 ContentHash TEXT NOT NULL DEFAULT '',
@@ -56,7 +57,23 @@ public sealed class ModelInformationDatabase
                 ON ModelInformation(ContentHash);
             """;
         cmd.ExecuteNonQuery();
+        EnsureColumn(c, tx, "OfflineHtml", "TEXT NOT NULL DEFAULT ''");
         tx.Commit();
+    }
+
+    private static void EnsureColumn(SqliteConnection c, SqliteTransaction tx, string name, string definition)
+    {
+        using var check = c.CreateCommand();
+        check.Transaction = tx;
+        check.CommandText = "PRAGMA table_info(ModelInformation);";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+            if (string.Equals(reader.GetString(1), name, StringComparison.OrdinalIgnoreCase)) return;
+        reader.Close();
+        using var alter = c.CreateCommand();
+        alter.Transaction = tx;
+        alter.CommandText = $"ALTER TABLE ModelInformation ADD COLUMN {name} {definition};";
+        alter.ExecuteNonQuery();
     }
 
     public List<ModelInformation> LoadAll()
@@ -65,7 +82,7 @@ public sealed class ModelInformationDatabase
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            SELECT Id, Publisher, Name, Tag, InformationText, AddedUtc,
+            SELECT Id, Publisher, Name, Tag, InformationText, OfflineHtml, AddedUtc,
                    SourceUrl, ContentHash, Status
             FROM ModelInformation
             ORDER BY Publisher COLLATE NOCASE, Name COLLATE NOCASE, Tag COLLATE NOCASE, AddedUtc;
@@ -80,10 +97,11 @@ public sealed class ModelInformationDatabase
                 Name = r.GetString(2),
                 Tag = r.GetString(3),
                 InformationText = r.GetString(4),
-                AddedUtc = ParseUtc(r.GetString(5)),
-                SourceUrl = r.GetString(6),
-                ContentHash = r.GetString(7),
-                Status = r.GetString(8)
+                OfflineHtml = r.GetString(5),
+                AddedUtc = ParseUtc(r.GetString(6)),
+                SourceUrl = r.GetString(7),
+                ContentHash = r.GetString(8),
+                Status = r.GetString(9)
             });
         }
         return result;
@@ -92,9 +110,7 @@ public sealed class ModelInformationDatabase
     public int SeedFromModels(IEnumerable<ModelInfo> models)
     {
         var candidates = models
-            .Where(m => !string.IsNullOrWhiteSpace(m.Description) ||
-                        !string.IsNullOrWhiteSpace(m.Capabilities) ||
-                        !string.IsNullOrWhiteSpace(m.OllamaUrl))
+            .Where(m => !string.IsNullOrWhiteSpace(m.Description) || !string.IsNullOrWhiteSpace(m.Capabilities) || !string.IsNullOrWhiteSpace(m.OllamaUrl))
             .ToList();
         if (candidates.Count == 0) return 0;
 
@@ -117,8 +133,7 @@ public sealed class ModelInformationDatabase
             Add(exists, "$tag", NormalizeTag(m.Tag));
             if (exists.ExecuteScalar() is not null) continue;
 
-            Insert(c, tx, m.Publisher, m.Name, m.Tag, text, DateTime.UtcNow,
-                m.OllamaUrl, ComputeHash(text), "Original information");
+            Insert(c, tx, m.Publisher, m.Name, m.Tag, text, "", DateTime.UtcNow, m.OllamaUrl, ComputeHash(text), "Original information");
             added++;
         }
         tx.Commit();
@@ -127,7 +142,7 @@ public sealed class ModelInformationDatabase
 
     public int AppendUpdates(IEnumerable<ModelInformation> updates)
     {
-        var candidates = updates.Where(x => !string.IsNullOrWhiteSpace(x.InformationText)).ToList();
+        var candidates = updates.Where(x => !string.IsNullOrWhiteSpace(x.InformationText) || !string.IsNullOrWhiteSpace(x.OfflineHtml)).ToList();
         if (candidates.Count == 0) return 0;
         using var c = Open();
         using var tx = c.BeginTransaction();
@@ -136,8 +151,8 @@ public sealed class ModelInformationDatabase
         {
             var publisher = NormalizePublisher(update.Publisher);
             var tag = NormalizeTag(update.Tag);
-            var hash = string.IsNullOrWhiteSpace(update.ContentHash)
-                ? ComputeHash(update.InformationText) : update.ContentHash;
+            var comparisonSource = string.IsNullOrWhiteSpace(update.OfflineHtml) ? update.InformationText : update.OfflineHtml;
+            var hash = string.IsNullOrWhiteSpace(update.ContentHash) ? ComputeHash(comparisonSource) : update.ContentHash;
             using var exists = c.CreateCommand();
             exists.Transaction = tx;
             exists.CommandText = """
@@ -150,7 +165,7 @@ public sealed class ModelInformationDatabase
             Add(exists, "$tag", tag);
             Add(exists, "$hash", hash);
             if (exists.ExecuteScalar() is not null) continue;
-            Insert(c, tx, publisher, update.Name, tag, update.InformationText,
+            Insert(c, tx, publisher, update.Name, tag, update.InformationText, update.OfflineHtml,
                 update.AddedUtc == default ? DateTime.UtcNow : update.AddedUtc,
                 update.SourceUrl, hash,
                 string.IsNullOrWhiteSpace(update.Status) ? "Update" : update.Status);
@@ -162,11 +177,9 @@ public sealed class ModelInformationDatabase
 
     public void BackupTo(string destinationPath)
     {
-        if (string.IsNullOrWhiteSpace(destinationPath))
-            throw new ArgumentException("A backup destination is required.", nameof(destinationPath));
+        if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("A backup destination is required.", nameof(destinationPath));
         var fullDestination = Path.GetFullPath(destinationPath);
-        if (string.Equals(fullDestination, Path.GetFullPath(_databasePath), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("The backup destination cannot be the active database file.");
+        if (string.Equals(fullDestination, Path.GetFullPath(_databasePath), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The backup destination cannot be the active database file.");
         Directory.CreateDirectory(Path.GetDirectoryName(fullDestination)!);
         using var source = Open();
         using var destination = new SqliteConnection($"Data Source={fullDestination};Cache=Private");
@@ -176,44 +189,37 @@ public sealed class ModelInformationDatabase
 
     public void RestoreFrom(string sourcePath)
     {
-        if (!File.Exists(sourcePath))
-            throw new FileNotFoundException("The selected backup database was not found.", sourcePath);
-        if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(_databasePath), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("The selected backup is already the active model-information database.");
-
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("The selected backup database was not found.", sourcePath);
+        if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(_databasePath), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The selected backup is already the active model-information database.");
         using (var validation = new SqliteConnection($"Data Source={sourcePath};Mode=ReadOnly;Cache=Private"))
         {
             validation.Open();
             using var command = validation.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ModelInformation';";
-            if (Convert.ToInt32(command.ExecuteScalar()) != 1)
-                throw new InvalidDataException("The selected file is not a valid OllamaModelExplorer model-information database.");
+            if (Convert.ToInt32(command.ExecuteScalar()) != 1) throw new InvalidDataException("The selected file is not a valid OllamaModelExplorer model-information database.");
         }
-
         var safetyBackup = _databasePath + ".pre-restore-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".db";
         if (File.Exists(_databasePath)) BackupTo(safetyBackup);
-
         var temp = _databasePath + ".restore-" + Guid.NewGuid().ToString("N");
         File.Copy(sourcePath, temp, true);
-        try { File.Copy(temp, _databasePath, true); }
-        finally { TryDelete(temp); }
+        try { File.Copy(temp, _databasePath, true); } finally { TryDelete(temp); }
     }
 
-    private static void Insert(SqliteConnection c, SqliteTransaction tx, string publisher, string name,
-        string tag, string text, DateTime addedUtc, string sourceUrl, string hash, string status)
+    private static void Insert(SqliteConnection c, SqliteTransaction tx, string publisher, string name, string tag, string text, string offlineHtml, DateTime addedUtc, string sourceUrl, string hash, string status)
     {
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO ModelInformation
-                (Publisher, Name, Tag, InformationText, AddedUtc, SourceUrl, ContentHash, Status)
+                (Publisher, Name, Tag, InformationText, OfflineHtml, AddedUtc, SourceUrl, ContentHash, Status)
             VALUES
-                ($publisher, $name, $tag, $text, $added, $url, $hash, $status);
+                ($publisher, $name, $tag, $text, $html, $added, $url, $hash, $status);
             """;
         Add(cmd, "$publisher", NormalizePublisher(publisher));
         Add(cmd, "$name", name);
         Add(cmd, "$tag", NormalizeTag(tag));
         Add(cmd, "$text", text);
+        Add(cmd, "$html", offlineHtml ?? "");
         Add(cmd, "$added", addedUtc.ToString("O"));
         Add(cmd, "$url", sourceUrl ?? "");
         Add(cmd, "$hash", hash);
