@@ -147,7 +147,9 @@ public sealed class ModelInformationForm : Form
             builder.AppendLine();
             for (var i = 0; i < history.Count; i++)
             {
-                if (i > 0) builder.AppendLine().AppendLine(new string('-', 90)).AppendLine().AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy").AppendLine();
+                if (i > 0)
+                    builder.AppendLine().AppendLine(new string('-', 90)).AppendLine()
+                        .AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy}").AppendLine();
                 builder.AppendLine(history[i].InformationText.Trim());
             }
             ShowFallback(builder.ToString());
@@ -164,12 +166,13 @@ public sealed class ModelInformationForm : Form
     private string BuildCombinedOfflineHtml(string name, string tag, IReadOnlyList<ModelInformation> pages)
     {
         var bodies = new StringBuilder();
-        foreach (var page in pages)
+        for (var i = 0; i < pages.Count; i++)
         {
+            var page = pages[i];
             var bodyMatch = System.Text.RegularExpressions.Regex.Match(page.OfflineHtml, "<body\\b[^>]*>(?<body>.*?)</body>", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
             var body = bodyMatch.Success ? bodyMatch.Groups["body"].Value : page.OfflineHtml;
             bodies.Append($"<section><div style=\"padding:8px 0;font-weight:bold;border-bottom:1px solid #999;margin-bottom:12px;\">Captured on {page.AddedUtc.ToLocalTime():dd/MM/yy}</div>{body}</section>");
-            if (!ReferenceEquals(page, pages[^1])) bodies.Append("<hr style=\"margin:28px 0;\">");
+            if (i < pages.Count - 1) bodies.Append("<hr style=\"margin:28px 0;\">");
         }
 
         return $"<!doctype html><html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><meta charset=\"utf-8\"><style>body{{margin:18px;background:#fff;color:#111;font-family:Segoe UI,Arial,sans-serif;font-size:{_fontSize:0.##}pt;}} img{{max-width:100%;height:auto;}} a{{color:#0645ad;}}</style></head><body><div style=\"font-size:1.15em;font-weight:bold;margin-bottom:16px;\">{System.Net.WebUtility.HtmlEncode(name)}:{System.Net.WebUtility.HtmlEncode(tag)}</div>{bodies}</body></html>";
