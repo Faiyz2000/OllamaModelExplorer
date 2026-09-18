@@ -11,6 +11,7 @@ public sealed class ModelInfo
     public string ManifestPath { get; set; } = "";
     public string Digest { get; set; } = "";
     public bool Installed { get; set; }
+    public string InstallationStatus => Installed ? "Found" : "Missing";
     public string Description { get; set; } = "";
     public string ParameterSize { get; set; } = "";
     public string Family { get; set; } = "";
