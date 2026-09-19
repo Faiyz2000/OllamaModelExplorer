@@ -92,10 +92,7 @@ public sealed class ModelInformationForm : Form
         _fontSize = Math.Clamp(size, 8f, 24f);
         _fontSizeLabel.Text = $"Font: {_fontSize:0} pt";
         if (_browser.Document?.Body is not null)
-        {
             _browser.Document.Body.Style = $"font-size:{_fontSize:0.##}pt !important;";
-            _browser.Document.Body.SetAttribute("data-font-scale", (_fontSize / 10f).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
-        }
     }
 
     private void PopulateModels()
@@ -159,7 +156,7 @@ public sealed class ModelInformationForm : Form
             {
                 if (i > 0)
                     builder.AppendLine().AppendLine(new string('-', 90)).AppendLine()
-                        .AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy").AppendLine();
+                        .AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy}").AppendLine();
                 builder.AppendLine(history[i].InformationText.Trim());
             }
             ShowFallback(builder.ToString());
