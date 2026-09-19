@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using OllamaModelExplorer.Data;
 using OllamaModelExplorer.Models;
+using OllamaModelExplorer.Services;
 
 namespace OllamaModelExplorer.UI;
 
@@ -90,39 +92,48 @@ public sealed class ModelInformationForm : Form
         _fontSize = Math.Clamp(size, 8f, 24f);
         _fontSizeLabel.Text = $"Font: {_fontSize:0} pt";
         if (_browser.Document?.Body is not null)
-            _browser.Document.Body.Style = $"font-size:{_fontSize:0.##}pt !important; zoom:{_fontSize / 10f:0.##};";
+        {
+            _browser.Document.Body.Style = $"font-size:{_fontSize:0.##}pt !important;";
+            _browser.Document.Body.SetAttribute("data-font-scale", (_fontSize / 10f).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     private void PopulateModels()
     {
         _modelSelector.Items.Clear();
-        var identities = _models.Select(m => $"{m.Publisher}/{m.Name}:{m.Tag}")
-            .Concat(_history.Select(h => $"{h.Publisher}/{h.Name}:{h.Tag}"))
+        var identities = _models.Select(m => Identity(m.Publisher, m.Name, m.Tag))
+            .Concat(_history.Select(h => Identity(h.Publisher, h.Name, h.Tag)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
         foreach (var identity in identities) _modelSelector.Items.Add(identity);
-        if (_modelSelector.Items.Count > 0) _modelSelector.SelectedIndex = 0;
-        else ShowFallback("No model information is currently stored.");
+
+        var preferred = ModelInformationSelectionFeature.SelectedModel;
+        var preferredIdentity = preferred is null ? null : Identity(preferred.Publisher, preferred.Name, preferred.Tag);
+        var preferredIndex = preferredIdentity is null ? -1 : _modelSelector.Items.IndexOf(preferredIdentity);
+
+        if (preferredIndex >= 0)
+            _modelSelector.SelectedIndex = preferredIndex;
+        else if (_modelSelector.Items.Count > 0)
+            _modelSelector.SelectedIndex = 0;
+        else
+            ShowFallback("No model information is currently stored.");
     }
 
     private void DisplaySelected()
     {
         if (_modelSelector.SelectedItem is not string identity) return;
-        var parts = identity.Split('/', 2);
-        var publisher = parts.Length == 2 ? parts[0] : "library";
-        var modelTag = parts.Length == 2 ? parts[1] : parts[0];
-        var lastColon = modelTag.LastIndexOf(':');
-        var name = lastColon > 0 ? modelTag[..lastColon] : modelTag;
-        var tag = lastColon > 0 ? modelTag[(lastColon + 1)..] : "latest";
+        var (publisher, name, tag) = ParseIdentity(identity);
         var model = _models.FirstOrDefault(m =>
-            string.Equals(m.Publisher, publisher, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(NormalizePublisher(m.Publisher), publisher, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(string.IsNullOrWhiteSpace(m.Tag) ? "latest" : m.Tag, tag, StringComparison.OrdinalIgnoreCase));
+            string.Equals(NormalizeTag(m.Tag), tag, StringComparison.OrdinalIgnoreCase));
         var found = model?.Installed == true;
+
         var history = _history.Where(h =>
-            string.Equals(h.Publisher, publisher, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(NormalizePublisher(h.Publisher), publisher, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(h.Tag, tag, StringComparison.OrdinalIgnoreCase))
+            string.Equals(NormalizeTag(h.Tag), tag, StringComparison.OrdinalIgnoreCase))
             .OrderBy(h => h.AddedUtc).ToList();
 
         if (history.Count == 0)
@@ -134,8 +145,7 @@ public sealed class ModelInformationForm : Form
         var pages = history.Where(h => !string.IsNullOrWhiteSpace(h.OfflineHtml)).ToList();
         if (pages.Count > 0)
         {
-            var html = BuildCombinedOfflineHtml(name, tag, pages);
-            _browser.DocumentText = html;
+            _browser.DocumentText = BuildCombinedOfflineHtml(name, tag, pages);
             _browser.DocumentCompleted += BrowserDocumentCompleted;
         }
         else
@@ -149,12 +159,15 @@ public sealed class ModelInformationForm : Form
             {
                 if (i > 0)
                     builder.AppendLine().AppendLine(new string('-', 90)).AppendLine()
-                        .AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy}").AppendLine();
+                        .AppendLine($"Update on {history[i].AddedUtc.ToLocalTime():dd/MM/yy").AppendLine();
                 builder.AppendLine(history[i].InformationText.Trim());
             }
             ShowFallback(builder.ToString());
         }
-        _status.Text = found ? "Model status: Found — information is available offline." : "Model status: Missing — preserved information is available offline.";
+
+        _status.Text = found
+            ? "Model status: Found — information is available offline."
+            : "Model status: Missing — preserved information is available offline.";
     }
 
     private void BrowserDocumentCompleted(object? sender, WebBrowserDocumentCompletedEventArgs e)
@@ -169,19 +182,39 @@ public sealed class ModelInformationForm : Form
         for (var i = 0; i < pages.Count; i++)
         {
             var page = pages[i];
-            var bodyMatch = System.Text.RegularExpressions.Regex.Match(page.OfflineHtml, "<body\\b[^>]*>(?<body>.*?)</body>", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-            var body = bodyMatch.Success ? bodyMatch.Groups["body"].Value : page.OfflineHtml;
-            bodies.Append($"<section><div style=\"padding:8px 0;font-weight:bold;border-bottom:1px solid #999;margin-bottom:12px;\">Captured on {page.AddedUtc.ToLocalTime():dd/MM/yy}</div>{body}</section>");
-            if (i < pages.Count - 1) bodies.Append("<hr style=\"margin:28px 0;\">");
+            var content = ExtractReadablePageContent(page.OfflineHtml);
+            bodies.Append($"<section class=\"snapshot\"><div class=\"snapshot-title\">Information captured on {page.AddedUtc.ToLocalTime():dd/MM/yy}</div>{content}</section>");
+            if (i < pages.Count - 1) bodies.Append("<hr class=\"history-separator\">");
         }
 
-        return $"<!doctype html><html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><meta charset=\"utf-8\"><style>body{{margin:18px;background:#fff;color:#111;font-family:Segoe UI,Arial,sans-serif;font-size:{_fontSize:0.##}pt;}} img{{max-width:100%;height:auto;}} a{{color:#0645ad;}}</style></head><body><div style=\"font-size:1.15em;font-weight:bold;margin-bottom:16px;\">{System.Net.WebUtility.HtmlEncode(name)}:{System.Net.WebUtility.HtmlEncode(tag)}</div>{bodies}</body></html>";
+        return $"<!doctype html><html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><meta charset=\"utf-8\"><style>body{{margin:0;padding:20px;background:#fff;color:#111;font-family:Segoe UI,Arial,sans-serif;font-size:{_fontSize:0.##}pt;line-height:1.45;}} .page{{max-width:1000px;margin:0 auto;}} .model-title{{font-size:1.5em;font-weight:700;margin:0 0 18px 0;padding-bottom:12px;border-bottom:2px solid #444;}} .snapshot{{margin-bottom:18px;}} .snapshot-title{{font-size:1.05em;font-weight:700;padding:8px 10px;margin-bottom:16px;border-bottom:1px solid #999;background:#f3f3f3;}} .history-separator{{border:0;border-top:2px solid #777;margin:28px 0;}} h1,h2,h3,h4{{line-height:1.25;margin-top:1.2em;}} p{{margin:0 0 12px 0;}} table{{border-collapse:collapse;max-width:100%;}} th,td{{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}} pre{{white-space:pre-wrap;overflow:auto;}} code{{font-family:Consolas,monospace;}} img{{max-width:100%;height:auto;}} a{{color:#0645ad;}} ul,ol{{padding-left:28px;}} nav,header,footer,aside{{max-width:100%;}} .page-nav{{display:none;}}</style></head><body><div class=\"page\"><div class=\"model-title\">{System.Net.WebUtility.HtmlEncode(name)}:{System.Net.WebUtility.HtmlEncode(tag)}</div>{bodies}</div></body></html>";
+    }
+
+    private static string ExtractReadablePageContent(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var value = html;
+        value = Regex.Replace(value, @"<script\b[^>]*>.*?</script>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        value = Regex.Replace(value, @"<noscript\b[^>]*>.*?</noscript>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        value = Regex.Replace(value, @"<nav\b[^>]*>.*?</nav>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        value = Regex.Replace(value, @"<footer\b[^>]*>.*?</footer>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        value = Regex.Replace(value, @"<header\b[^>]*>.*?</header>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        value = Regex.Replace(value, @"<aside\b[^>]*>.*?</aside>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        var main = Regex.Match(value, @"<main\b[^>]*>(?<content>.*?)</main>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (main.Success) return main.Groups["content"].Value;
+
+        var article = Regex.Match(value, @"<article\b[^>]*>(?<content>.*?)</article>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (article.Success) return article.Groups["content"].Value;
+
+        var body = Regex.Match(value, @"<body\b[^>]*>(?<content>.*?)</body>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        return body.Success ? body.Groups["content"].Value : value;
     }
 
     private void ShowFallback(string text)
     {
         var escaped = System.Net.WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
-        _browser.DocumentText = $"<!doctype html><html><body style=\"margin:18px;font-family:Consolas,monospace;white-space:normal;\">{escaped}</body></html>";
+        _browser.DocumentText = $"<!doctype html><html><body style=\"margin:18px;font-family:Consolas,monospace;line-height:1.45;\">{escaped}</body></html>";
         _browser.DocumentCompleted += BrowserDocumentCompleted;
     }
 
@@ -238,4 +271,21 @@ public sealed class ModelInformationForm : Form
                 "Database restore error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
+
+    private static string Identity(string? publisher, string? name, string? tag) =>
+        $"{NormalizePublisher(publisher)}/{name}:{NormalizeTag(tag)}";
+
+    private static (string Publisher, string Name, string Tag) ParseIdentity(string identity)
+    {
+        var slash = identity.IndexOf('/');
+        var publisher = slash > 0 ? identity[..slash] : "library";
+        var modelTag = slash > 0 ? identity[(slash + 1)..] : identity;
+        var colon = modelTag.LastIndexOf(':');
+        var name = colon > 0 ? modelTag[..colon] : modelTag;
+        var tag = colon > 0 ? modelTag[(colon + 1)..] : "latest";
+        return (publisher, name, tag);
+    }
+
+    private static string NormalizePublisher(string? value) => string.IsNullOrWhiteSpace(value) ? "library" : value.Trim();
+    private static string NormalizeTag(string? value) => string.IsNullOrWhiteSpace(value) ? "latest" : value.Trim();
 }
