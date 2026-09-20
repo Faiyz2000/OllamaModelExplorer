@@ -24,6 +24,11 @@ public static class ModelDetailsFontToolbarInstaller
             if (form.IsDisposed || !form.Visible || form == Application.OpenForms.Cast<Form>().FirstOrDefault(f => f.Text == "Ollama Model Explorer"))
                 continue;
 
+            // Do not alter the existing application log window or the dedicated Model Information form.
+            if (form.Text.Contains("Application Log", StringComparison.OrdinalIgnoreCase) ||
+                form.Text.Contains("Model Information", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var details = FindDetailsTextBox(form);
             if (details == null) continue;
 
