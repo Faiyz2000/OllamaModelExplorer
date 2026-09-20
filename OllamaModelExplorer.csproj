@@ -38,6 +38,7 @@
     <Compile Include="Services\RamEstimator.cs" />
     <Compile Include="Services\DeleteModelFeature.cs" />
     <Compile Include="Services\RamColumnFeature.cs" />
+    <Compile Include="Services\ModelDetailsFontToolbarInstaller.cs" />
     <Compile Include="UI\LogForm.cs" />
     <Compile Include="UI\MainForm.cs" />
     <Compile Include="UI\MainFormOnline.cs" />
