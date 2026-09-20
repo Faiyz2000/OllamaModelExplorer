@@ -27,3 +27,5 @@ jobs:
           name: OllamaModelExplorer-win-x64
           path: bin/Release/net8.0-windows/win-x64/publish/OllamaModelExplorer.exe
           if-no-files-found: error
+
+# Release packaging is enabled only for pushes to main.
