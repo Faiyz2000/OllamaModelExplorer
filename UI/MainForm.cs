@@ -361,8 +361,82 @@ public sealed class MainForm : Form
         AppLogger.Action($"Opened model details: {m.DisplayName}");
         var ram = RamEstimator.Assess(m);
         var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nEstimated RAM to run: {ram.Display}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nManifest: {m.ManifestPath}\r\nDigest: {m.Digest}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
-        using var f = new Form { Text = m.DisplayName, Width = 850, Height = 620, StartPosition = FormStartPosition.CenterParent };
-        f.Controls.Add(new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Text = text, Font = new Font("Consolas", 10) });
+
+        using var f = new Form
+        {
+            Text = m.DisplayName,
+            Width = 850,
+            Height = 620,
+            MinimumSize = new Size(650, 450),
+            StartPosition = FormStartPosition.CenterParent
+        };
+
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 46,
+            Padding = new Padding(8, 6, 8, 4),
+            WrapContents = false,
+            AutoScroll = true
+        };
+
+        var decreaseFont = new Button
+        {
+            Text = "A−",
+            Width = 42,
+            Height = 30,
+            AccessibleName = "Decrease model details font size"
+        };
+        var increaseFont = new Button
+        {
+            Text = "A+",
+            Width = 42,
+            Height = 30,
+            AccessibleName = "Increase model details font size"
+        };
+        var resetFont = new Button
+        {
+            Text = "Reset Font",
+            Width = 82,
+            Height = 30
+        };
+        var fontLabel = new Label
+        {
+            Text = "Font: 10 pt",
+            AutoSize = true,
+            Padding = new Padding(4, 7, 4, 0)
+        };
+
+        var details = new TextBox
+        {
+            Multiline = true,
+            ReadOnly = true,
+            Dock = DockStyle.Fill,
+            ScrollBars = ScrollBars.Both,
+            WordWrap = false,
+            Text = text,
+            Font = new Font("Consolas", 10f),
+            BackColor = SystemColors.Window,
+            ForeColor = SystemColors.WindowText
+        };
+
+        float fontSize = 10f;
+        void SetDetailsFont(float size)
+        {
+            fontSize = Math.Clamp(size, 8f, 24f);
+            var oldFont = details.Font;
+            details.Font = new Font(oldFont.FontFamily, fontSize, oldFont.Style, oldFont.Unit, oldFont.GdiCharSet, oldFont.GdiVerticalFont);
+            oldFont.Dispose();
+            fontLabel.Text = $"Font: {fontSize:0} pt";
+        }
+
+        decreaseFont.Click += (_, _) => SetDetailsFont(fontSize - 1f);
+        increaseFont.Click += (_, _) => SetDetailsFont(fontSize + 1f);
+        resetFont.Click += (_, _) => SetDetailsFont(10f);
+
+        toolbar.Controls.AddRange(new Control[] { decreaseFont, increaseFont, resetFont, fontLabel });
+        f.Controls.Add(details);
+        f.Controls.Add(toolbar);
         f.ShowDialog(this);
     }
 
