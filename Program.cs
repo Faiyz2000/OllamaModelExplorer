@@ -14,6 +14,7 @@ internal static class Program
         ModelInformationSelectionFeature.Attach(form);
         DeleteModelFeature.Attach(form);
         RamColumnFeature.Attach(form);
+        ModelDetailsFontToolbarInstaller.Install();
         Application.Run(form);
     }
 }
