@@ -1,0 +1,125 @@
+name: Fix model details font toolbar
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-details-toolbar.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch model details layout
+        shell: pwsh
+        run: |
+          $path = 'UI/MainForm.cs'
+          $text = Get-Content -Raw -Encoding UTF8 $path
+          $pattern = '(?s)        var toolbar = new FlowLayoutPanel.*?        f\.ShowDialog\(this\);\r?\n    \}'
+          $replacement = @'
+          var toolbar = new Panel
+          {
+              Dock = DockStyle.Top,
+              Height = 48,
+              Padding = new Padding(8, 7, 8, 5),
+              BackColor = SystemColors.Control
+          };
+
+          var decreaseFont = new Button
+          {
+              Text = "A−",
+              Width = 44,
+              Height = 32,
+              Location = new Point(8, 7),
+              AccessibleName = "Decrease model details font size",
+              TabStop = true
+          };
+          var increaseFont = new Button
+          {
+              Text = "A+",
+              Width = 44,
+              Height = 32,
+              Location = new Point(58, 7),
+              AccessibleName = "Increase model details font size",
+              TabStop = true
+          };
+          var resetFont = new Button
+          {
+              Text = "Reset Font",
+              Width = 88,
+              Height = 32,
+              Location = new Point(108, 7)
+          };
+          var fontLabel = new Label
+          {
+              Text = "Font: 10 pt",
+              AutoSize = true,
+              Location = new Point(204, 14)
+          };
+
+          var details = new TextBox
+          {
+              Multiline = true,
+              ReadOnly = true,
+              Dock = DockStyle.Fill,
+              ScrollBars = ScrollBars.Both,
+              WordWrap = false,
+              Text = text,
+              Font = new Font("Consolas", 10f),
+              BackColor = SystemColors.Window,
+              ForeColor = SystemColors.WindowText
+          };
+
+          float fontSize = 10f;
+          void SetDetailsFont(float size)
+          {
+              fontSize = Math.Clamp(size, 8f, 24f);
+              var oldFont = details.Font;
+              details.Font = new Font(oldFont.FontFamily, fontSize, oldFont.Style, oldFont.Unit, oldFont.GdiCharSet, oldFont.GdiVerticalFont);
+              oldFont.Dispose();
+              fontLabel.Text = $"Font: {fontSize:0} pt";
+          }
+
+          decreaseFont.Click += (_, _) => SetDetailsFont(fontSize - 1f);
+          increaseFont.Click += (_, _) => SetDetailsFont(fontSize + 1f);
+          resetFont.Click += (_, _) => SetDetailsFont(10f);
+
+          toolbar.Controls.Add(decreaseFont);
+          toolbar.Controls.Add(increaseFont);
+          toolbar.Controls.Add(resetFont);
+          toolbar.Controls.Add(fontLabel);
+
+          f.Controls.Add(details);
+          f.Controls.Add(toolbar);
+          toolbar.BringToFront();
+          f.ShowDialog(this);
+      }
+'@
+          $newText = [regex]::Replace($text, $pattern, $replacement, 1)
+          if ($newText -eq $text) { throw 'Expected ShowDetails layout block was not found.' }
+          Set-Content -Path $path -Value $newText -Encoding UTF8
+
+      - name: Build and verify
+        shell: pwsh
+        run: |
+          dotnet restore
+          dotnet build -c Release --no-restore
+
+      - name: Commit patch and remove one-time workflow
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add UI/MainForm.cs
+          git rm .github/workflows/fix-details-toolbar.yml
+          git commit -m 'Fix model details font toolbar layout [skip ci]'
+          git push
