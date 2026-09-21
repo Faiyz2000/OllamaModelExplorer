@@ -27,4 +27,4 @@ jobs:
           path: bin/Release/net8.0-windows/win-x64/publish/OllamaModelExplorer.exe
           if-no-files-found: error
 
-# Release packaging is enabled only for pushes to main.
+# Release packaging is enabled only for pushes to main. This build is intentionally self-contained and single-file.
