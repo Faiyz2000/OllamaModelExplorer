@@ -28,3 +28,4 @@ jobs:
           if-no-files-found: error
 
 # Release packaging is enabled only for pushes to main. This build is intentionally self-contained and single-file.
+# Packaging verification run requested by the user; project version is intentionally unchanged.
