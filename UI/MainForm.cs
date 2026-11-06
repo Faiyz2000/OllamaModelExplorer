@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Reflection;
 using OllamaModelExplorer.Data;
 using OllamaModelExplorer.Models;
 using OllamaModelExplorer.Services;
@@ -49,8 +50,19 @@ public sealed class MainForm : Form
         _summary.ForeColor = Color.Silver;
         _summary.Location = new Point(29, 50);
         _summary.AutoSize = true;
+        var version = Assembly.GetEntryAssembly()?.GetName().Version;
+        var versionLabel = new Label
+        {
+            Text = version is null ? "Version unknown" : $"Version {version.Major}.{version.Minor}.{version.Build}",
+            ForeColor = Color.Gainsboro,
+            Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            Padding = new Padding(0, 20, 18, 0)
+        };
         header.Controls.Add(title);
         header.Controls.Add(_summary);
+        header.Controls.Add(versionLabel);
 
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(18, 8, 18, 6), WrapContents = false, AutoScroll = true };
         _selectFolderButton.Text = "Select Ollama Folder";
