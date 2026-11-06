@@ -29,6 +29,45 @@ public static class DeleteModelFeature
         };
 
         toolbar.Controls.Add(button);
+
+        var columnsButton = new Button
+        {
+            Name = "OllamaColumnsButton",
+            Text = "Columns ▼",
+            AutoSize = true
+        };
+
+        var columnsMenu = new ContextMenuStrip
+        {
+            ShowCheckMargin = true
+        };
+
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            if (column.Name == button.Name) continue;
+
+            var item = new ToolStripMenuItem(column.HeaderText)
+            {
+                Checked = column.Visible,
+                CheckOnClick = true,
+                Tag = column
+            };
+            item.CheckedChanged += (_, _) =>
+            {
+                if (item.Tag is DataGridViewColumn target)
+                    target.Visible = item.Checked;
+            };
+            columnsMenu.Items.Add(item);
+        }
+
+        columnsButton.Click += (_, _) =>
+        {
+            AppLogger.Action("Column visibility menu opened.");
+            columnsMenu.Show(columnsButton, new Point(0, columnsButton.Height));
+        };
+
+        toolbar.Controls.Add(columnsButton);
+
         grid.SelectionChanged += (_, _) => UpdateEnabled(button, grid);
         button.Click += async (_, _) => await DeleteSelectedAsync(form, grid, button);
         UpdateEnabled(button, grid);
