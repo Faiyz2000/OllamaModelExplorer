@@ -143,8 +143,15 @@ public sealed class MainForm : Form
         AddColumn("Size", "SizeDisplay", 100);
         AddColumn("Publisher", "Publisher", 140);
         AddColumn("Parameters", "ParameterSize", 110);
-        AddColumn("Family", "Family", 120);
+        AddColumn("Architecture", "Architecture", 130);
         AddColumn("Quantization", "Quantization", 120);
+        AddColumn("Storage Format", "StorageFormat", 115);
+        AddColumn("GGUF Loader", "GgufLoader", 125);
+        AddColumn("Disk Tensor Access", "DiskBackedTensorAccess", 170);
+        AddColumn("Memory Budget", "MemoryBudgetManager", 135);
+        AddColumn("Architecture Support", "ArchitectureSupport", 155);
+        AddColumn("MoE Expert Streaming", "MoeExpertStreaming", 210);
+        AddColumn("Input Modality", "InputModality", 130);
         AddColumn("RAM to Run", "RamRequirement", 230);
         AddColumn("Categories", "CategoryText", 230);
         AddColumn("Modified", "ModifiedDisplay", 150);
@@ -165,7 +172,11 @@ public sealed class MainForm : Form
     private void LoadModels()
     {
         _allModels = _db.GetAll();
-        foreach (var m in _allModels) CategoryService.ApplyHeuristics(m);
+        foreach (var m in _allModels)
+        {
+            CategoryService.ApplyHeuristics(m);
+            ModelCapabilityFeature.Apply(m);
+        }
         RefreshCategoryList();
         ApplyFilters();
         AppLogger.Info($"Loaded {_allModels.Count} model records from local database.");
@@ -202,11 +213,19 @@ public sealed class MainForm : Form
             _selectFolderButton.Enabled = false;
             var progress = new Progress<string>(message => _summary.Text = message);
             var models = await _scanner.ScanAsync(_ollamaRoot, progress);
-            foreach (var m in models) CategoryService.ApplyHeuristics(m);
+            foreach (var m in models)
+            {
+                CategoryService.ApplyHeuristics(m);
+                ModelCapabilityFeature.Apply(m);
+            }
             var upsertResult = _db.UpsertLocalModels(models);
             _db.MarkInstalledModels(models);
             _allModels = _db.GetAll();
-            foreach (var m in _allModels) CategoryService.ApplyHeuristics(m);
+            foreach (var m in _allModels)
+            {
+                CategoryService.ApplyHeuristics(m);
+                ModelCapabilityFeature.Apply(m);
+            }
             RefreshCategoryList();
             ApplyFilters();
             var installedCount = _allModels.Count(x => x.Installed);
@@ -322,12 +341,19 @@ public sealed class MainForm : Form
             2 => (a, b) => a.Model.SizeBytes.CompareTo(b.Model.SizeBytes),
             3 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Publisher, b.Model.Publisher),
             4 => (a, b) => CompareNatural(a.Model.ParameterSize, b.Model.ParameterSize),
-            5 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Family, b.Model.Family),
+            5 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Architecture, b.Model.Architecture),
             6 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Quantization, b.Model.Quantization),
-            7 => (a, b) => RamEstimator.EstimateRequiredRamBytes(a.Model).CompareTo(RamEstimator.EstimateRequiredRamBytes(b.Model)),
-            8 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
-            9 => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
-            10 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MetadataUpdatedUtc?.ToString("O") ?? "", b.Model.MetadataUpdatedUtc?.ToString("O") ?? ""),
+            7 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.StorageFormat, b.Model.StorageFormat),
+            8 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.GgufLoader, b.Model.GgufLoader),
+            9 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.DiskBackedTensorAccess, b.Model.DiskBackedTensorAccess),
+            10 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MemoryBudgetManager, b.Model.MemoryBudgetManager),
+            11 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.ArchitectureSupport, b.Model.ArchitectureSupport),
+            12 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MoeExpertStreaming, b.Model.MoeExpertStreaming),
+            13 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.InputModality, b.Model.InputModality),
+            14 => (a, b) => RamEstimator.EstimateRequiredRamBytes(a.Model).CompareTo(RamEstimator.EstimateRequiredRamBytes(b.Model)),
+            15 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
+            16 => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
+            17 => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MetadataUpdatedUtc?.ToString("O") ?? "", b.Model.MetadataUpdatedUtc?.ToString("O") ?? ""),
             _ => null
         };
         if (comparison == null) return;
@@ -360,7 +386,7 @@ public sealed class MainForm : Form
     {
         AppLogger.Action($"Opened model details: {m.DisplayName}");
         var ram = RamEstimator.Assess(m);
-        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nEstimated RAM to run: {ram.Display}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nManifest: {m.ManifestPath}\r\nDigest: {m.Digest}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
+        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nArchitecture: {m.Architecture}\r\nQuantization: {m.Quantization}\r\nStorage Format: {m.StorageFormat}\r\nGGUF Loader: {m.GgufLoader}\r\nDisk-Backed Tensor Access: {m.DiskBackedTensorAccess}\r\nMemory Budget Manager: {m.MemoryBudgetManager}\r\nArchitecture Support: {m.ArchitectureSupport}\r\nMoE Expert Streaming: {m.MoeExpertStreaming}\r\nInput Modality: {m.InputModality}\r\nContext: {m.Context}\r\nEstimated RAM to run: {ram.Display}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nManifest: {m.ManifestPath}\r\nDigest: {m.Digest}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
 
         using var f = new Form
         {
@@ -449,8 +475,12 @@ public sealed class MainForm : Form
         lines.Add(new string('-', Math.Min(160, lines[0].Length)));
         var comparisonFields = new (string Name, Func<ModelInfo, string> GetValue)[]
         {
-            ("Size", m => FormatBytes(m.SizeBytes)), ("Parameters", m => m.ParameterSize), ("Family", m => m.Family),
-            ("Quantization", m => m.Quantization), ("Estimated RAM", m => RamEstimator.Assess(m).Display), ("Context", m => m.Context), ("Categories", m => m.CategoryText),
+            ("Size", m => FormatBytes(m.SizeBytes)), ("Parameters", m => m.ParameterSize), ("Architecture", m => m.Architecture),
+            ("Quantization", m => m.Quantization), ("Storage Format", m => m.StorageFormat),
+            ("GGUF Loader", m => m.GgufLoader), ("Disk Tensor Access", m => m.DiskBackedTensorAccess),
+            ("Memory Budget", m => m.MemoryBudgetManager), ("Architecture Support", m => m.ArchitectureSupport),
+            ("MoE Expert Streaming", m => m.MoeExpertStreaming), ("Input Modality", m => m.InputModality),
+            ("Estimated RAM", m => RamEstimator.Assess(m).Display), ("Context", m => m.Context), ("Categories", m => m.CategoryText),
             ("Capabilities", m => m.Capabilities.Replace("|", ", "))
         };
         foreach (var pair in comparisonFields) lines.Add(pair.Name.PadRight(24) + string.Join(" | ", selected.Select(m => pair.GetValue(m))));
@@ -476,8 +506,15 @@ public sealed class MainForm : Form
         public string DisplayName => Model.DisplayName;
         public string Publisher => Model.Publisher;
         public string ParameterSize => string.IsNullOrWhiteSpace(Model.ParameterSize) ? "Unknown" : Model.ParameterSize;
-        public string Family => Model.Family;
+        public string Architecture => Model.Architecture;
         public string Quantization => Model.Quantization;
+        public string StorageFormat => Model.StorageFormat;
+        public string GgufLoader => Model.GgufLoader;
+        public string DiskBackedTensorAccess => Model.DiskBackedTensorAccess;
+        public string MemoryBudgetManager => Model.MemoryBudgetManager;
+        public string ArchitectureSupport => Model.ArchitectureSupport;
+        public string MoeExpertStreaming => Model.MoeExpertStreaming;
+        public string InputModality => Model.InputModality;
         public string RamRequirement => RamEstimator.Assess(Model).Display;
         public string CategoryText => Model.CategoryText;
         public string ModifiedDisplay => Model.ModifiedUtc.ToString("yyyy-MM-dd HH:mm");
