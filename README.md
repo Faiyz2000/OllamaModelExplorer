@@ -1,4 +1,4 @@
-# Ollama Model Explorer v0.7.0
+# Ollama Model Explorer v0.9.0
 
 ## Major fixes and features
 
@@ -63,3 +63,22 @@ Ollama must be running at `http://localhost:11434` for local inventory scanning 
 Target: .NET 8 Windows Forms, `win-x64`, self-contained, single-file publish. `OllamaIcon.ico` remains the application icon. The project uses an explicit compile list to avoid duplicate source/resource errors caused by stray copied `.cs` files.
 
 The GitHub workflow currently performs a Release build only. Single-file self-contained EXE publishing is retained in the project configuration but is not automatically produced until requested.
+
+
+## Professional model intelligence
+
+Version 0.9.0 adds model-intelligence columns to the main grid:
+
+- **Architecture** — reads the Ollama `model_info` architecture when available and falls back to the model family.
+- **Quantization** — preserves the Ollama quantization level such as `Q4_K_M`.
+- **Storage Format** — reports the Ollama model format such as `GGUF`.
+- **GGUF Loader** — reports whether GGUF loading is applicable to the model.
+- **Disk-Backed Tensor Access** — reports the backend's mmap/file-backed loading behaviour without claiming it is a model-native feature.
+- **Memory Budget Manager** — identifies Ollama-managed memory scheduling.
+- **Architecture Support** — distinguishes locally confirmed support from unverified records.
+- **MoE Expert Streaming** — detects likely MoE models while explicitly reporting that per-model expert-streaming capability is not exposed by the Ollama API.
+- **Input Modality** — derives Text, Image, Audio, Video, or Multimodal from Ollama capabilities.
+
+The implementation deliberately distinguishes **model metadata** from **inference-engine capabilities**. This avoids presenting backend features such as mmap or memory management as if they were intrinsic properties of an individual model.
+
+Ollama's current API exposes `details`, `model_info`, and `capabilities` through `/api/show`; the explorer uses those fields for architecture, format, quantization and modality detection. Runtime engine behaviour is labelled separately.
