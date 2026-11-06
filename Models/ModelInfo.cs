@@ -17,6 +17,14 @@ public sealed class ModelInfo
     public string Family { get; set; } = "";
     public string Quantization { get; set; } = "";
     public string Format { get; set; } = "";
+    public string Architecture { get; set; } = "";
+    public string StorageFormat { get; set; } = "";
+    public string GgufLoader { get; set; } = "";
+    public string DiskBackedTensorAccess { get; set; } = "";
+    public string MemoryBudgetManager { get; set; } = "";
+    public string ArchitectureSupport { get; set; } = "";
+    public string MoeExpertStreaming { get; set; } = "";
+    public string InputModality { get; set; } = "";
     public string Context { get; set; } = "";
     public string CategoryText { get; set; } = "";
     public string Capabilities { get; set; } = "";
