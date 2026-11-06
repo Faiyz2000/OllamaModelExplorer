@@ -161,7 +161,8 @@ public sealed class OllamaScanner
             Quantization = FirstReal(
                 GetString(details, "quantization_level"),
                 GetString(details, "quantizationLevel")),
-            Format = FirstReal(GetString(details, "format"))
+            Format = FirstReal(GetString(details, "format")),
+            Architecture = FirstReal(GetString(details, "family"))
         };
     }
 
@@ -229,6 +230,12 @@ public sealed class OllamaScanner
 
             model.Family = FirstReal(model.Family, GetString(details, "family"));
             model.Format = FirstReal(model.Format, GetString(details, "format"));
+            model.Architecture = FirstReal(
+                model.Architecture,
+                FindStringByKey(root, "general.architecture"),
+                FindStringByKey(root, "architecture"),
+                model.Family);
+            model.StorageFormat = model.Format;
 
             var context = FindNumberOrStringBySuffix(root, "context_length");
             if (!string.IsNullOrWhiteSpace(context))
