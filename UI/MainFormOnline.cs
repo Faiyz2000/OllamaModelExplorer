@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Reflection;
 using OllamaModelExplorer.Data;
 using OllamaModelExplorer.Models;
 using OllamaModelExplorer.Services;
@@ -56,8 +57,19 @@ public sealed class MainFormOnline : Form
         _summary.ForeColor = Color.Silver;
         _summary.Location = new Point(29, 50);
         _summary.AutoSize = true;
+        var version = Assembly.GetEntryAssembly()?.GetName().Version;
+        var versionLabel = new Label
+        {
+            Text = version is null ? "Version unknown" : $"Version {version.Major}.{version.Minor}.{version.Build}",
+            ForeColor = Color.Gainsboro,
+            Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            Padding = new Padding(0, 20, 18, 0)
+        };
         header.Controls.Add(title);
         header.Controls.Add(_summary);
+        header.Controls.Add(versionLabel);
 
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(18, 8, 18, 6), WrapContents = false };
         _selectFolderButton.Text = "Select Ollama Folder";
@@ -134,6 +146,14 @@ public sealed class MainFormOnline : Form
         AddColumn("Parameters", "ParameterSize", 110);
         AddColumn("Family", "Family", 120);
         AddColumn("Quantization", "Quantization", 120);
+        AddColumn("Architecture", "Architecture", 130);
+        AddColumn("Storage Format", "StorageFormat", 115);
+        AddColumn("GGUF Loader", "GgufLoader", 125);
+        AddColumn("Disk Tensor Access", "DiskBackedTensorAccess", 170);
+        AddColumn("Memory Budget", "MemoryBudgetManager", 135);
+        AddColumn("Architecture Support", "ArchitectureSupport", 155);
+        AddColumn("MoE Expert Streaming", "MoeExpertStreaming", 210);
+        AddColumn("Input Modality", "InputModality", 130);
         AddColumn("Categories", "CategoryText", 230);
         AddColumn("Modified", "ModifiedDisplay", 150);
         AddColumn("Metadata", "MetadataDisplay", 100);
@@ -154,7 +174,11 @@ public sealed class MainFormOnline : Form
     {
         _allModels = _db.GetAll();
         ApplyCachedOnlineMetadata();
-        foreach (var m in _allModels) CategoryService.ApplyHeuristics(m);
+        foreach (var m in _allModels)
+        {
+            CategoryService.ApplyHeuristics(m);
+            ModelCapabilityFeature.Apply(m);
+        }
         RefreshCategoryList();
         ApplyFilters();
     }
@@ -193,12 +217,20 @@ public sealed class MainFormOnline : Form
             SetBusy(true);
             var progress = new Progress<string>(x => _summary.Text = x);
             var models = await _scanner.ScanAsync(_ollamaRoot, progress);
-            foreach (var m in models) CategoryService.ApplyHeuristics(m);
+            foreach (var m in models)
+            {
+                CategoryService.ApplyHeuristics(m);
+                ModelCapabilityFeature.Apply(m);
+            }
             var result = _db.UpsertLocalModels(models);
             _db.MarkInstalledModels(models);
             _allModels = _db.GetAll();
             ApplyCachedOnlineMetadata();
-            foreach (var m in _allModels) CategoryService.ApplyHeuristics(m);
+            foreach (var m in _allModels)
+            {
+                CategoryService.ApplyHeuristics(m);
+                ModelCapabilityFeature.Apply(m);
+            }
             RefreshCategoryList();
             ApplyFilters();
             MessageBox.Show(this, $"Ollama API reports: {models.Count} models{Environment.NewLine}Saved/updated: {result.Succeeded}{Environment.NewLine}Installed models in grid: {_allModels.Count(x => x.Installed)}", "Ollama scan complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -371,6 +403,14 @@ public sealed class MainFormOnline : Form
             "ParameterSize" => (a, b) => CompareNatural(a.Model.ParameterSize, b.Model.ParameterSize),
             "Family" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Family, b.Model.Family),
             "Quantization" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Quantization, b.Model.Quantization),
+            "Architecture" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.Architecture, b.Model.Architecture),
+            "StorageFormat" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.StorageFormat, b.Model.StorageFormat),
+            "GgufLoader" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.GgufLoader, b.Model.GgufLoader),
+            "DiskBackedTensorAccess" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.DiskBackedTensorAccess, b.Model.DiskBackedTensorAccess),
+            "MemoryBudgetManager" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MemoryBudgetManager, b.Model.MemoryBudgetManager),
+            "ArchitectureSupport" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.ArchitectureSupport, b.Model.ArchitectureSupport),
+            "MoeExpertStreaming" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.MoeExpertStreaming, b.Model.MoeExpertStreaming),
+            "InputModality" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.InputModality, b.Model.InputModality),
             "CategoryText" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Model.CategoryText, b.Model.CategoryText),
             "ModifiedDisplay" => (a, b) => a.Model.ModifiedUtc.CompareTo(b.Model.ModifiedUtc),
             "MetadataDisplay" => (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.MetadataDisplay, b.MetadataDisplay),
@@ -402,7 +442,7 @@ public sealed class MainFormOnline : Form
 
     private void ShowDetails(ModelInfo m)
     {
-        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nQuantization: {m.Quantization}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
+        var text = $"Model: {m.DisplayName}\r\nPublisher: {m.Publisher}\r\nSize: {FormatBytes(m.SizeBytes)}\r\nModified: {m.ModifiedUtc:G}\r\nParameters: {m.ParameterSize}\r\nFamily: {m.Family}\r\nArchitecture: {m.Architecture}\r\nQuantization: {m.Quantization}\r\nStorage format: {m.StorageFormat}\r\nGGUF loader: {m.GgufLoader}\r\nDisk tensor access: {m.DiskBackedTensorAccess}\r\nMemory budget: {m.MemoryBudgetManager}\r\nArchitecture support: {m.ArchitectureSupport}\r\nMoE expert streaming: {m.MoeExpertStreaming}\r\nInput modality: {m.InputModality}\r\nFormat: {m.Format}\r\nContext: {m.Context}\r\nCategories: {m.CategoryText}\r\nCapabilities: {m.Capabilities.Replace("|", ", ")}\r\nMetadata updated: {m.MetadataUpdatedUtc?.ToString("G") ?? "No"}\r\nInstalled: {m.Installed}\r\nOllama URL: {m.OllamaUrl}\r\n\r\n{m.Description}";
         using var f = new Form { Text = m.DisplayName, Width = 850, Height = 600, StartPosition = FormStartPosition.CenterParent };
         f.Controls.Add(new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Text = text, Font = new Font("Consolas", 10) });
         f.ShowDialog(this);
@@ -413,7 +453,7 @@ public sealed class MainFormOnline : Form
         var selected = _grid.SelectedRows.Cast<DataGridViewRow>().Select(x => x.DataBoundItem as ModelRow).Where(x => x is not null).Select(x => x!.Model).DistinctBy(x => x.Id).ToList();
         if (selected.Count < 2) { MessageBox.Show(this, "Select at least two model rows.", "Compare"); return; }
         var lines = new List<string> { "FEATURE".PadRight(24) + string.Join(" | ", selected.Select(x => x.DisplayName)), new string('-', 120) };
-        foreach (var pair in new (string, Func<ModelInfo, string>)[] { ("Size", m => FormatBytes(m.SizeBytes)), ("Parameters", m => m.ParameterSize), ("Family", m => m.Family), ("Quantization", m => m.Quantization), ("Context", m => m.Context), ("Categories", m => m.CategoryText), ("Capabilities", m => m.Capabilities.Replace("|", ", ")) })
+        foreach (var pair in new (string, Func<ModelInfo, string>)[] { ("Size", m => FormatBytes(m.SizeBytes)), ("Parameters", m => m.ParameterSize), ("Family", m => m.Family), ("Quantization", m => m.Quantization), ("Architecture", m => m.Architecture), ("Storage Format", m => m.StorageFormat), ("GGUF Loader", m => m.GgufLoader), ("Disk Tensor Access", m => m.DiskBackedTensorAccess), ("Memory Budget", m => m.MemoryBudgetManager), ("Architecture Support", m => m.ArchitectureSupport), ("MoE Expert Streaming", m => m.MoeExpertStreaming), ("Input Modality", m => m.InputModality), ("Context", m => m.Context), ("Categories", m => m.CategoryText), ("Capabilities", m => m.Capabilities.Replace("|", ", ")) })
             lines.Add(pair.Item1.PadRight(24) + string.Join(" | ", selected.Select(pair.Item2)));
         MessageBox.Show(this, string.Join(Environment.NewLine, lines), "Model comparison");
     }
@@ -440,6 +480,14 @@ public sealed class MainFormOnline : Form
         public string ParameterSize => string.IsNullOrWhiteSpace(Model.ParameterSize) ? "Unknown" : Model.ParameterSize;
         public string Family => Model.Family;
         public string Quantization => Model.Quantization;
+        public string Architecture => Model.Architecture;
+        public string StorageFormat => Model.StorageFormat;
+        public string GgufLoader => Model.GgufLoader;
+        public string DiskBackedTensorAccess => Model.DiskBackedTensorAccess;
+        public string MemoryBudgetManager => Model.MemoryBudgetManager;
+        public string ArchitectureSupport => Model.ArchitectureSupport;
+        public string MoeExpertStreaming => Model.MoeExpertStreaming;
+        public string InputModality => Model.InputModality;
         public string CategoryText => Model.CategoryText;
         public string ModifiedDisplay => Model.ModifiedUtc == DateTime.MinValue ? "Unknown" : Model.ModifiedUtc.ToString("yyyy-MM-dd HH:mm");
         public string MetadataDisplay => Model.MetadataUpdatedUtc.HasValue || !string.IsNullOrWhiteSpace(Model.Description) ? "Enriched" : "Local";
